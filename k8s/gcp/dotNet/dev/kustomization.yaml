@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+  - pairs:
+      codeType: dotNet
+      environment: dev
+
+resources:
+  - ../../base
+replicas:
+  - name: app-template
+    count: 1
+patches:
+  - path: cpu-limit.yaml
+  - path: ram-limit.yaml

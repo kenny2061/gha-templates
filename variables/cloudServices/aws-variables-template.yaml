@@ -1,0 +1,56 @@
+# AWS Cloud Services Configuration Variables Template
+# Amazon Web Services 相關的變數設定
+
+# AWS 帳戶配置
+AWS_ACCOUNT_ID: ''                         # Required: AWS 帳戶 ID
+AWS_REGION: 'us-east-1'                    # Required: AWS 區域
+
+# Image Registry 相關 (ECR)
+IMG_REGISTRY_SERVICE_NAME: ''              # Required: ECR 服務名稱
+IMG_REPOSITORY: ''                         # Required: ECR 倉庫路徑 (格式: account-id.dkr.ecr.region.amazonaws.com/repo-name)
+IMG_REGISTRY: ''                           # ECR Registry URI (account-id.dkr.ecr.region.amazonaws.com)
+IMG_REGISTRY_URL: 'https://'               # ECR Registry 完整 URL
+
+# ECR (Elastic Container Registry) 配置
+ECR_REPOSITORY_NAME: ''                    # ECR 倉庫名稱
+ECR_REGISTRY_ID: ''                        # ECR Registry ID (通常是 AWS Account ID)
+ECR_ENABLE_SCAN: 'true'                    # 啟用 ECR 掃描
+ECR_SCAN_ON_PUSH: 'true'                   # 推送時自動掃描
+
+# ECS (Elastic Container Service) 部署配置 (如果使用 ECS)
+ECS_CLUSTER_NAME: ''                       # ECS 叢集名稱
+ECS_SERVICE_NAME: ''                       # ECS 服務名稱
+ECS_TASK_DEFINITION: ''                    # ECS 任務定義名稱
+ECS_DESIRED_COUNT: '1'                     # 期望的任務數
+
+# EKS (Elastic Kubernetes Service) 部署配置 (如果使用 EKS)
+EKS_CLUSTER_NAME: ''                       # EKS 叢集名稱
+EKS_REGION: 'us-east-1'                    # EKS 叢集區域
+
+# IAM 角色與權限
+IAM_ROLE_ARN: ''                           # IAM 角色 ARN
+DEPLOYMENT_ROLE: ''                        # 部署角色名稱
+
+# VPC & 網路配置 (可選)
+VPC_ID: ''                                 # VPC ID
+SUBNET_IDS: ''                             # 子網 IDs (逗號分隔)
+SECURITY_GROUP_IDS: ''                     # 安全群組 IDs (逗號分隔)
+
+# Lambda 相關配置 (如果使用 Lambda)
+LAMBDA_FUNCTION_NAME: ''                   # Lambda 函數名稱
+LAMBDA_ROLE_ARN: ''                        # Lambda 執行角色 ARN
+LAMBDA_MEMORY: '256'                       # Lambda 記憶體 (MB)
+LAMBDA_TIMEOUT: '30'                       # Lambda 逾時時間 (秒)
+
+# CloudFront & CDN 配置 (可選)
+CLOUDFRONT_DISTRIBUTION_ID: ''             # CloudFront 發行版本 ID
+ENABLE_CLOUDFRONT: 'false'                 # 啟用 CloudFront CDN
+
+# 其他 AWS 服務配置
+AWS_ENABLE_DETAILED_MONITORING: 'false'    # 啟用詳細監控
+AWS_TAGS: ''                               # AWS 標籤 (格式: key1=value1,key2=value2)
+ENABLE_CROSS_ACCOUNT_ROLE: 'false'        # 啟用跨帳戶角色
+
+# GitHub OIDC 配置 (用於 GitHub Actions 無密鑰認證)
+USE_GITHUB_OIDC: 'true'                    # 使用 GitHub OIDC 進行認證
+AWS_GITHUB_OIDC_ROLE_ARN: ''               # GitHub OIDC IAM 角色 ARN

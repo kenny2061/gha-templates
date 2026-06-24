@@ -1,0 +1,31 @@
+name: Copy Files Action
+
+inputs:
+  source_path:
+    description: 'Path to the source directory containing files to copy'
+    required: true
+    type: string
+  destination_path:
+    description: 'Path to the destination directory where files will be copied'
+    required: true
+    type: string
+  clear_before_copy:
+    description: 'Whether to clear the destination directory before copying'
+    required: false
+    type: boolean
+    default: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Copy Files
+      shell: bash
+      run: |
+        source ${{ github.workspace }}/${{ env.TEMPLATE_RESOURCE_FOLDER }}/scripts/shell/functions.sh
+
+
+        echo "Copying files from ${{ inputs.source_path }} to ${{ inputs.destination_path }}"
+        mkdir -p "${{ inputs.destination_path }}"
+
+        copy_with_clear --sourcePath "${{ inputs.source_path }}" --targetPath "${{ inputs.destination_path }}" --clearBeforeCopy "${{ inputs.clear_before_copy }}"
+        ls -alh "${{ inputs.destination_path }}"

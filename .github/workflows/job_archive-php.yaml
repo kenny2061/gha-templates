@@ -1,0 +1,175 @@
+name: Archive PHP
+
+on:
+  workflow_call:
+    inputs:
+      src-path:
+        required: false
+        type: string
+        default: '.'
+        description: 'Path to PHP source files to archive'
+      archive-file-name:
+        required: false
+        type: string
+        default: 'buildResult.zip'
+        description: 'Name of the output archive file'
+      git-sha-file-name:
+        required: false
+        type: string
+        default: 'gitCommitSHA.txt'
+        description: 'Name of the Git commit SHA file'
+      caller-repo:
+        required: false
+        type: string
+        description: 'The repository that called this workflow (owner/repo)'
+      caller-ref:
+        required: false
+        type: string
+        description: 'The Git ref of the calling repository'
+      pre-archive-workflow:
+        required: false
+        type: string
+        description: 'Path to pre-archive workflow file (e.g., .github/workflows/pre-build.yaml)'
+      pre-archive-args:
+        required: false
+        type: string
+        default: '{}'
+        description: 'JSON string of arguments for the pre-archive workflow'
+      post-archive-workflow:
+        required: false
+        type: string
+        description: 'Path to post-archive workflow file (e.g., .github/workflows/post-build.yaml)'
+      post-archive-args:
+        required: false
+        type: string
+        default: '{}'
+        description: 'JSON string of arguments for the post-archive workflow'
+      publish-output-artifact:
+        required: false
+        type: boolean
+        default: true
+        description: 'Whether to publish artifacts'
+    secrets:
+      github-token:
+        required: false
+
+jobs:
+  archive:
+    name: Archive PHP Files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source repository
+        uses: actions/checkout@v4
+
+      - name: Checkout caller repository (for external workflow files)
+        if: inputs.caller-repo != ''
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.caller-repo }}
+          ref: ${{ inputs.caller-ref }}
+          path: caller-repo-checkout
+          token: ${{ secrets.github-token || secrets.GITHUB_TOKEN }}
+
+      - name: Print parameters and variables
+        shell: bash
+        run: |
+          echo "=== Archive Parameters ==="
+          echo "Source Path: ${{ inputs.src-path }}"
+          echo "Archive File Name: ${{ inputs.archive-file-name }}"
+          echo "Pre-Archive Workflow: ${{ inputs.pre-archive-workflow }}"
+          echo "Post-Archive Workflow: ${{ inputs.post-archive-workflow }}"
+
+      - name: Create pipeline files folder
+        shell: bash
+        run: |
+          mkdir -p ${{ runner.temp }}/pipeline-files
+          mkdir -p ${{ runner.temp }}/zip-files
+
+      - name: Run pre-archive workflow
+        if: inputs.pre-archive-workflow != ''
+        shell: bash
+        run: |
+          PRE_ARCHIVE_FILENAME=$(basename "${{ inputs.pre-archive-workflow }}")
+          
+          # Install GitHub CLI
+          if ! command -v gh &> /dev/null; then
+            sudo apt-get update && sudo apt-get install -y gh
+          fi
+          
+          # Authenticate GitHub CLI
+          echo "${{ secrets.github-token || secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+          
+          # Trigger pre-archive workflow in caller's repository
+          echo "Triggering pre-archive workflow: ${{ inputs.pre-archive-workflow }}"
+          gh workflow run "$PRE_ARCHIVE_FILENAME" \
+            --repo "${{ inputs.caller-repo }}" \
+            --ref "${{ inputs.caller-ref }}" \
+            -F args_json='${{ inputs.pre-archive-args }}'
+        env:
+          GITHUB_TOKEN: ${{ secrets.github-token || secrets.GITHUB_TOKEN }}
+
+      - name: Archive PHP files to zip
+        shell: bash
+        run: |
+          # Create zip archive excluding common unwanted files/directories
+          cd ${{ inputs.src-path }}
+          zip -r ${{ runner.temp }}/zip-files/${{ inputs.archive-file-name }} . \
+            -x "*.git*" ".git/*" ".gitignore" \
+               "vendor/*" \
+               ".env*" \
+               "*.log" \
+               "build/*" \
+               "dist/*" \
+               ".DS_Store" \
+               "__MACOSX/*" \
+               "node_modules/*" \
+               ".vscode/*" \
+               ".idea/*"
+          
+          ls -lah ${{ runner.temp }}/zip-files/${{ inputs.archive-file-name }}
+
+      - name: Run post-archive workflow
+        if: inputs.post-archive-workflow != ''
+        shell: bash
+        run: |
+          POST_ARCHIVE_FILENAME=$(basename "${{ inputs.post-archive-workflow }}")
+          
+          # Install GitHub CLI
+          if ! command -v gh &> /dev/null; then
+            sudo apt-get update && sudo apt-get install -y gh
+          fi
+          
+          # Authenticate GitHub CLI
+          echo "${{ secrets.github-token || secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+          
+          # Trigger post-archive workflow in caller's repository
+          echo "Triggering post-archive workflow: ${{ inputs.post-archive-workflow }}"
+          gh workflow run "$POST_ARCHIVE_FILENAME" \
+            --repo "${{ inputs.caller-repo }}" \
+            --ref "${{ inputs.caller-ref }}" \
+            -F args_json='${{ inputs.post-archive-args }}'
+        env:
+          GITHUB_TOKEN: ${{ secrets.github-token || secrets.GITHUB_TOKEN }}
+
+      - name: Capture git commit SHA
+        id: git-sha
+        shell: bash
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          echo "$(git rev-parse HEAD)" > ${{ runner.temp }}/pipeline-files/${{ inputs.git-sha-file-name }}
+
+      - name: Upload build output artifact
+        if: inputs.publish-output-artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output-files
+          path: ${{ runner.temp }}/zip-files/${{ inputs.archive-file-name }}
+          retention-days: 30
+
+      - name: Upload pipeline files artifact
+        if: inputs.publish-output-artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-files
+          path: ${{ runner.temp }}/pipeline-files/
+          retention-days: 30

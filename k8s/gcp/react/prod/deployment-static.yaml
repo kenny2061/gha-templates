@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-template-static
+spec:
+  progressDeadlineSeconds: 90
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      name: app-template
+  template:
+    metadata:
+      labels:
+        name: app-template
+    spec:
+      nodeSelector:
+        # Static的Deployment不佈署在Spot Pool，避免Spot VM回收影響服務穩定性
+        cloud.google.com/gke-provisioning: standard
+      containers:
+        - name: app
+          image: alpine:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+            - containerPort: 8443
+              name: https
+

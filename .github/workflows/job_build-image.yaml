@@ -1,0 +1,374 @@
+name: Build Docker Image
+
+on:
+  workflow_call:
+    inputs:
+      # Required Inputs
+      app_name:
+        description: 'The name of the application'
+        required: true
+        type: string
+      app_repo: # App Repo 的名稱
+        description: 'The name of the application repository'
+        required: true
+        type: string
+      app_ref: # App Repo 的 Git ref
+        description: 'The Git ref (branch/tag/commit) of the App Repo'
+        required: true
+        type: string
+      program_type:
+        description: 'The type of application (e.g., web, api, app, prog)'
+        required: true
+        type: string
+      merged_config_json:
+        description: 'JSON string of merged configuration variables'
+        required: true
+        type: string
+      code_type:
+        description: '程式類型 (go | nodejs | python | java)'
+        required: true
+        type: string
+
+      # With default values
+      template_repo:
+        required: false
+        type: string
+        default: ''
+      template_ref:
+        required: false
+        type: string
+        default: ''
+      pipeline_repo:
+        required: false
+        type: string
+        default: ''
+      pipeline_repo_ref:
+        required: false
+        type: string
+        default: ''
+
+      image_tag:
+        description: 'Tag for the Docker image'
+        required: false
+        type: string
+        default: ''
+      dockerfile_name:
+        description: 'The name of the Dockerfile to use (if not using app-specific or template Dockerfile)'
+        required: false
+        type: string
+        default: 'Dockerfile'
+      use_template_dockerfile:
+        description: 'Whether to use a template Dockerfile from the Pipeline Repo'
+        required: false
+        type: boolean
+        default: true
+      image_registry:
+        required: false
+        default: ''
+        type: string
+      image_repository:
+        required: false
+        default: ''
+        type: string
+      gcp_project_id:
+        required: false
+        default: ''
+        type: string
+      execute_file_name:
+        description: 'The executable file name inside the Docker image (if applicable)'
+        required: false
+        type: string
+        default: ''
+      image_src:
+        description: 'The image FROM tag source in dockerfile'
+        required: false
+        type: string
+        default: ''
+      image_args:
+        description: 'build arguments for the Docker image'
+        required: false
+        type: string
+        default: ''
+      copy_fonts:
+        description: 'Whether to copy fonts to the Docker build context'
+        required: false
+        type: boolean
+        default: false
+      docker_login:
+        description: 'Whether to login to Docker Hub (requires DOCKERHUB_USERNAME and DOCKERHUB_TOKEN)'
+        required: false
+        type: boolean
+        default: false
+      docker_login_registry:
+        description: 'The Docker registry to login to (e.g., ghcr.io, index.docker.io)'
+        required: false
+        type: string
+        default: 'index.docker.io'
+      docker_login_username:
+        description: 'Username for Docker registry login'
+        required: false
+        type: string
+        default: ''
+      
+      # image_registry_uri:
+      #   description: 'The Docker image registry URI'
+      #   required: false
+      #   type: string
+      #   default: ''  # If not specified, will use from merged_config_json
+
+      runs_on:
+        description: 'The type of runner to use'
+        required: false
+        type: string
+        default: ''
+
+      # Extendsible Workflow
+      run_pre_build_image_action:
+        required: false
+        type: boolean
+        default: false
+        description: 'Whether to run the pre-build action, need to put in .github/workflows/actions/pre-build'
+      pre_build_image_args:
+        required: false
+        type: string
+        default: '{}'
+        description: 'JSON string of arguments for the pre-build action'
+      run_post_build_image_action:
+        required: false
+        type: boolean
+        default: false
+        description: 'Whether to run the post-build action, need to put in .github/workflows/actions/post-build'
+      post_build_image_args:
+        required: false
+        type: string
+        default: '{}'
+        description: 'JSON string of arguments for the post-build action'
+
+
+
+      # ... 其他 Docker Build 需要的參數 ...
+
+      # pre-image-steps:
+      #   description: 'Optional pre-build commands (shell string)'
+      #   required: false
+      #   type: string
+      #   default: ''
+      # post-image-steps:
+      #   description: 'Optional post-build commands (shell string)'
+      #   required: false
+      #   type: string
+      #   default: ''
+      # zip_fileName:
+      #   description: 'The name of the zip file from artifact to use as build context (if applicable)'
+      #   required: false
+      #   type: string
+      #   default: '' # 如果未指定，則使用全域設定的zipFileName(從job_setup-config載入)
+      # download_artifact_folder:
+      #   description: 'The folder where the artifact zip is downloaded'
+      #   required: false
+      #   type: string
+      #   default: '' # 如果未指定，則使用全域設定的downloadArtifactFolder(從job_setup-config載入)
+
+      # environment:
+      #   description: 'Environment (dev, stage, prod)'
+      #   required: false
+      #   type: string
+      #   default: 'dev'
+
+    outputs:
+      merged_config_json:
+        description: 'The merged configuration JSON after build'
+        value: ${{ inputs.merged_config_json }}
+      image_uri:
+        description: 'Full name of the built Docker image with tag'
+        value: ${{ jobs.build_push_image.outputs.image_uri }}
+
+    secrets:
+      PAT_FOR_CHECKOUT_REPO: # 用於取出 Pipeline Repo 的 PAT
+        required: true
+      DOCKER_LOGIN_TOKEN:
+        required: false
+        description: 'Token for Docker registry login (required if docker_login is true)'
+
+jobs:
+  build_push_image:
+    runs-on: ${{ inputs.runs_on || 'ubuntu-latest' }}
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      IMAGE_REGISTRY_URI: ''
+    outputs:
+      image_uri: ${{ steps.set_image_uri.outputs.image_uri }}
+    steps:
+      - name: 將 JSON 轉為 Env
+        uses: ./actions/convert-json-to-env@main
+        with:
+          merged_config_json: ${{ inputs.merged_config_json }}
+
+      - name: Checkout Pipeline Repository
+        uses: ./actions/checkout-repo@main
+        with:
+          template_repo: ${{ inputs.template_repo }} # .
+          template_ref: ${{ inputs.template_ref }}
+          pipeline_repo: ${{ inputs.pipeline_repo }} # kenny2061/Pipelines
+          pipeline_repo_ref: ${{ inputs.pipeline_repo_ref }}
+          token: ${{ secrets.PAT_FOR_CHECKOUT_REPO }} # 使用傳入的 PAT
+
+      - name: Check Folders
+        uses: ./actions/setup-folders@main
+        with:
+          app_name: ${{ inputs.app_name }}
+          program_type: ${{ inputs.program_type }}
+          actions_symbol_link_place: ${{ github.workspace }}  # 這裡沒有checkout app repo(沒有sources)，所以用workspace路徑
+
+      - name: Download Build Output Artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: ${{ env.BUILD_OUTPUT_ARTIFACT_NAME }}
+      
+      - name: List download artifact files
+        run: |
+          ls -alh ${{ github.workspace }}
+
+      - name: Unzip Build Output Artifact
+        run: |
+          set -euo pipefail
+          unzip "${{ github.workspace }}/${{ env.ZIP_FILE_NAME }}" -d "${{ env.IMG_CONTEXT_FOLDER_PATH }}"
+
+      - name: Copy Dockerfile Scripts
+        uses: ./actions/copy-files@main
+        with:
+          source_path: ${{ env.TEMPLATE_FILES_PATH }}/dockerfiles/scripts
+          destination_path: ${{ env.IMG_CONTEXT_FOLDER_PATH }}/scripts
+
+      - name: Copy Fonts
+        if: ${{ inputs.copy_fonts }}
+        uses: ./actions/copy-files@main
+        with:
+          source_path: ${{ env.TEMPLATE_FILES_PATH }}/dockerfiles/fonts/
+          destination_path: ${{ env.IMG_CONTEXT_FOLDER_PATH }}/fonts
+
+      - name: Copy Application Build Image Related Scripts
+        uses: ./actions/copy-build-image-scripts@main
+        with:
+          app_name: ${{ inputs.app_name }}
+          program_type: ${{ inputs.program_type }}
+
+      - name: Ensure required tools (gh, jq)
+        shell: bash
+        run: |
+          set -euo pipefail
+          MISSING=()
+          if ! command -v gh &> /dev/null; then
+            MISSING+=(gh)
+          fi
+          if ! command -v jq &> /dev/null; then
+            MISSING+=(jq)
+          fi
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "Missing tools: ${MISSING[*]}. Attempting to install..."
+            if command -v apt-get &> /dev/null; then
+              sudo apt-get update
+              if printf '%s\n' "${MISSING[@]}" | grep -q gh; then
+                sudo apt-get install -y gh || (echo 'Failed to install gh' && exit 1)
+              fi
+              if printf '%s\n' "${MISSING[@]}" | grep -q jq; then
+                sudo apt-get install -y jq || (echo 'Failed to install jq' && exit 1)
+              fi
+            else
+              echo 'No supported package manager found to install required tools. Please run on an ubuntu runner or provide gh/jq.'
+              exit 1
+            fi
+          else
+            echo 'All required tools present.'
+          fi
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ inputs.gcp_project_id || env.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+
+      - name: Register `gcloud` as Credential Helper for Docker
+        run: gcloud auth configure-docker ${{ inputs.image_registry || env.IMG_REGISTRY }} --project=${{ inputs.gcp_project_id || env.GCP_PROJECT_ID }}
+
+      - name: Combine Image Registry URI
+        id: combine_image_registry_uri
+        if: ${{ inputs.image_registry != '' || inputs.image_repository != '' || inputs.gcp_project_id != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMAGE_REGISTRY="${{ inputs.image_registry || env.IMG_REGISTRY }}"
+          IMAGE_REPOSITORY="${{ inputs.image_repository || env.IMG_REPOSITORY }}"
+          GCP_PROJECT_ID="${{ inputs.gcp_project_id || env.GCP_PROJECT_ID }}"
+
+          IMAGE_REGISTRY_URI="${IMAGE_REGISTRY}/${GCP_PROJECT_ID}/${IMAGE_REPOSITORY}"
+          echo "image_registry_uri=$IMAGE_REGISTRY_URI" >> "$GITHUB_OUTPUT"
+          echo "IMAGE_REGISTRY_URI=$IMAGE_REGISTRY_URI" >> "$GITHUB_ENV"
+          
+
+      - name: Pre Build Image Action
+        if: ${{ inputs.run_pre_build_image_action }}
+        uses: ./.actions/pre-build-image
+        with:
+          args_json: ${{ inputs.pre_build_image_args }}
+          merged_config_json: ${{ inputs.merged_config_json }}
+
+      - name: Docker Login
+        uses: docker/login-action@v4
+        if: ${{ inputs.docker_login == 'true' || env.DOCKER_LOGIN == 'true' }}
+        with:
+          registry: ${{ inputs.docker_login_registry || 'index.docker.io' }}
+          username: ${{ inputs.docker_login_username || env.DOCKER_LOGIN_USERNAME }}
+          password: ${{ secrets.DOCKER_LOGIN_TOKEN || env.DOCKER_LOGIN_TOKEN }}
+
+      - name: Build and Push Docker Image
+        id: build_image
+        if: ${{ inputs.image_tag == '' }}
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ env.IMG_CONTEXT_FOLDER_PATH }}
+          file: ${{ inputs.use_template_dockerfile && format('{0}/dockerfiles', env.TEMPLATE_FILES_PATH) || env.APP_PIPELINE_FILES_PATH }}/${{ inputs.dockerfile_name }}
+          push: true
+          build-args: |
+            BUILD_ID=${{ github.run_id }}
+            APP_NAME=${{ inputs.app_name }}
+            BRANCH=${{ inputs.app_ref }}
+            TARGET_FILE=${{ inputs.execute_file_name || inputs.app_name }}
+            IMAGE_SRC=${{ inputs.image_src || 'alpine:latest' }}
+          tags: |
+            ${{ env.IMAGE_REGISTRY_URI || env.DOCKER_REGISTRY_URI }}/${{ inputs.app_name }}:latest
+            ${{ env.IMAGE_REGISTRY_URI || env.DOCKER_REGISTRY_URI }}/${{ inputs.app_name }}:${{ github.run_id }}
+
+      - name: Build and Push Docker Image
+        id: build_image_with_tag
+        if: ${{ inputs.image_tag != '' }}
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ env.IMG_CONTEXT_FOLDER_PATH }}
+          file: ${{ inputs.use_template_dockerfile && format('{0}/dockerfiles', env.TEMPLATE_FILES_PATH) || env.APP_PIPELINE_FILES_PATH }}/${{ inputs.dockerfile_name }}
+          push: true
+          build-args: |
+            BUILD_ID=${{ github.run_id }}
+            APP_NAME=${{ inputs.app_name }}
+            BRANCH=${{ inputs.app_ref }}
+            TARGET_FILE=${{ inputs.execute_file_name || inputs.app_name }}
+            IMAGE_SRC=${{ inputs.image_src || 'alpine:latest' }}
+          tags: |
+            ${{ env.IMAGE_REGISTRY_URI || env.DOCKER_REGISTRY_URI }}/${{ inputs.app_name }}:latest
+            ${{ env.IMAGE_REGISTRY_URI || env.DOCKER_REGISTRY_URI }}/${{ inputs.app_name }}:${{ github.run_id }}
+            ${{ env.IMAGE_REGISTRY_URI || env.DOCKER_REGISTRY_URI }}/${{ inputs.app_name }}:${{ inputs.image_tag }}
+
+      - name: Set Image URI Output
+        id: set_image_uri
+        run: |
+          echo "image_uri=${{ env.IMAGE_REGISTRY_URI || env.DOCKER_REGISTRY_URI }}/${{ inputs.app_name }}:${{ github.run_id }}" >> "$GITHUB_OUTPUT"
+
+      - name: Post Build Image Action
+        if: ${{ inputs.run_post_build_image_action }}
+        uses: ./.actions/post-build-image
+        with:
+          args_json: ${{ inputs.post_build_image_args }}
+          merged_config_json: ${{ inputs.merged_config_json }}

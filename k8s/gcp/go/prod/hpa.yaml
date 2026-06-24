@@ -1,0 +1,47 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: app-template-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: app-template
+  
+ 
+  minReplicas: 2
+  maxReplicas: 4
+  
+  metrics:
+  # - type: Resource
+  #   resource:
+  #     name: cpu
+  #     target:
+  #       type: Utilization
+  #       # 可以設低一點，讓 Spot 更早介入分擔流量
+  #       # 例如設 60%，讓 On-Demand 還沒滿載前，Spot 就先起來幫忙
+  #       averageUtilization: 70  # 當 CPU 使用率超過 request 的 70% 時擴容
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80  # 當 Memory 使用率超過 request 的 80% 時擴容
+  
+  # (選用) 行為微調：避免擴縮容太過劇烈 (Flapping)
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 120  # 縮容前觀察 2 分鐘，避免因為短暫低負載就縮容
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 15
+    scaleUp:
+      stabilizationWindowSeconds: 10    # 擴容要快，不需要觀察窗
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 15
+      - type: Pods
+        value: 2
+        periodSeconds: 15

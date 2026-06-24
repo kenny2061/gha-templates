@@ -1,0 +1,41 @@
+name: 複製編譯容器映像檔需要的Script
+
+inputs:
+  app_name:
+    description: 'The name of the application'
+    required: true
+    type: string
+  program_type:
+    description: 'The type of application (e.g., web, api, app, prog)'
+    required: true
+    type: string
+
+runs:
+  using: "composite"
+  steps:
+    - name: 複製Scripts
+      shell: bash
+      run: |
+        if [ ! -d ${{ env.IMG_CONTEXT_FOLDER_PATH }} ];then mkdir -p ${{ env.IMG_CONTEXT_FOLDER_PATH }}; fi
+
+        if [ -f ${{ env.PIPELINE_FILES_PATH }}/${{ inputs.app_name }}/${{ inputs.program_type }}/scripts/buildImageCustomScript.sh ]; then
+          echo "found buildImageCustomScript.sh, copy to ${{ env.IMG_CONTEXT_FOLDER_PATH }}"
+          cp ${{ env.PIPELINE_FILES_PATH }}/${{ inputs.app_name }}/${{ inputs.program_type }}/scripts/buildImageCustomScript.sh ${{ env.IMG_CONTEXT_FOLDER_PATH }}
+        fi
+
+        if [ -f ${{ env.PIPELINE_FILES_PATH }}/${{ inputs.app_name }}/${{ inputs.program_type }}/scripts/unsetEnvVars.sh ]; then
+          echo "found unsetEnvVars.sh in, copy to ${{ env.IMG_CONTEXT_FOLDER_PATH }}"
+          cp ${{ env.PIPELINE_FILES_PATH }}/${{ inputs.app_name }}/${{ inputs.program_type }}/scripts/unsetEnvVars.sh ${{ env.IMG_CONTEXT_FOLDER_PATH }}
+        fi
+
+        echo "list all files in ${{ env.IMG_CONTEXT_FOLDER_PATH }}"
+        echo ""
+        
+        if ls ${{ env.IMG_CONTEXT_FOLDER_PATH }}/*.sh 1> /dev/null 2>&1; then
+          echo "Setting executable permission for .sh files..."
+          chmod +x ${{ env.IMG_CONTEXT_FOLDER_PATH }}/*.sh
+        else
+          echo "No .sh files found, skipping chmod."
+        fi
+
+        ls ${{ env.IMG_CONTEXT_FOLDER_PATH }} -al

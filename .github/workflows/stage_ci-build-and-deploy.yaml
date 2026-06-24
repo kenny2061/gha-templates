@@ -1,0 +1,175 @@
+name: stage_ci-build-and-deploy
+
+on:
+  workflow_call:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  setup:
+    name: Setup Configuration
+    runs-on: ubuntu-latest
+    outputs:
+      config: ${{ steps.config.outputs.config }}
+    steps:
+      - name: Set up configuration
+        id: config
+        shell: bash
+        run: |
+          # This configuration should be customized per project
+          cat > config.json << 'EOF'
+          {
+            "projectName": "DotNetSample",
+            "programType": "web",
+            "codeType": "dotNet",
+            "srcPath": "src",
+            "buildSourceFile": "DotNetSample.sln",
+            "buildDockerfile": "Build.Dockerfile",
+            "imgRepository": "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}",
+            "cloudRunRegion": "asia-east1",
+            "cloudRunServiceName": "dotnet-sample-service",
+            "k8sNamespace": "default"
+          }
+          EOF
+          echo "config=$(cat config.json | base64 -w 0)" >> $GITHUB_OUTPUT
+
+  build:
+    name: Build Application
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore "src/DotNetSample.sln"
+
+      - name: Build
+        run: |
+          dotnet build "src/DotNetSample.sln" \
+            --configuration Release \
+            --no-restore \
+            --output ${{ runner.temp }}/build-output
+
+      - name: Publish
+        run: |
+          dotnet publish "src/DotNetSample.sln" \
+            --configuration Release \
+            --no-build \
+            --output ${{ runner.temp }}/build-output
+
+      - name: Archive build output
+        run: |
+          mkdir -p ${{ runner.temp }}/artifacts
+          cd ${{ runner.temp }}/build-output
+          zip -r ${{ runner.temp }}/artifacts/buildResult.zip . -x "*.git*"
+
+      - name: Capture commit SHA
+        shell: bash
+        run: |
+          echo "$(git rev-parse HEAD)" > ${{ runner.temp }}/artifacts/gitCommitSHA.txt
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: ${{ runner.temp }}/artifacts/
+          retention-days: 30
+
+  docker-build:
+    name: Build Docker Image
+    needs: [setup, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current repository (for dockerfiles)
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            dockerfiles
+          sparse-checkout-cone-mode: false
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output
+          path: ${{ runner.temp }}/artifacts
+
+      - name: Extract artifacts
+        run: |
+          mkdir -p ${{ runner.temp }}/image-context
+          unzip -q "${{ runner.temp }}/artifacts/buildResult.zip" \
+            -d "${{ runner.temp }}/image-context"
+
+      - name: Copy Dockerfile
+        run: |
+          cp "dockerfiles/Build.Dockerfile" \
+            "${{ runner.temp }}/image-context/Dockerfile"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha
+            type=semver,pattern={{version}}
+            type=raw,value=latest
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ runner.temp }}/image-context
+          file: ${{ runner.temp }}/image-context/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+            VCS_REF=${{ github.sha }}
+            APP_NAME=dotnet-sample
+
+  deploy-dev:
+    name: Deploy to Dev
+    needs: [setup, docker-build]
+    runs-on: ubuntu-latest
+    if: success()
+    steps:
+      - name: Checkout gha-templates Repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/gha-templates
+          path: gha-templates-repo
+
+      - name: Deploy to Cloud Run (Dev)
+        shell: bash
+        run: |
+          echo "Deploying to Dev environment..."
+          # Deployment logic would go here
+          # This would use GCP credentials from secrets
+          # gcloud run deploy ...
+
+      - name: Record deployment
+        shell: bash
+        run: |
+          echo "=== Deployment Summary ==="
+          echo "Environment: dev"
+          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          echo "Timestamp: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"

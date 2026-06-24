@@ -1,0 +1,51 @@
+# .NET Build Configuration Variables Template
+# .NET 代碼類型的編譯相關變數設定
+
+# 基本編譯配置
+CODE_TYPE: 'dotnet'                        # 代碼類型標識符
+DOTNET_VERSION: '8.0.x'                    # Required: .NET SDK 版本
+DOTNET_BUILD_CONFIGURATION: 'Release'      # 編譯配置 (Debug, Release)
+
+# 編譯路徑與檔案
+BUILD_SOURCE_FILE: '*.sln'                 # 編譯檔案 (*.sln 或 *.csproj)
+DOTNET_SRC_PATH: 'src'                     # 源碼目錄路徑
+DOTNET_BUILD_OUTPUT_PATH: 'bin/Release'    # 編譯輸出路徑
+START_FILE: ''                             # 啟動檔名 (e.g., ProjectName.dll)
+
+# NuGet 相關
+NUGET_FEED_ENABLED: 'false'                # 啟用自訂 NuGet Feed
+NUGET_FEED_URL: ''                         # NuGet Feed URL
+NUGET_API_KEY: ''                          # NuGet API 金鑰 (來自 GitHub Secrets)
+COPY_NUGET_CONFIG: 'false'                 # 複製 NuGet.config 檔案
+
+# 測試相關
+RUN_UNIT_TESTS: 'true'                     # 執行單位測試
+RUN_CODE_ANALYSIS: 'true'                  # 執行代碼分析 (SonarQube 等)
+TEST_PROJECT_PATH: '**/Tests/**/*.csproj' # 測試專案路徑
+
+# SonarQube 相關
+SONARQUBE_ENABLED: 'false'                 # 啟用 SonarQube 掃描
+SONARQUBE_PROJECT_KEY: ''                  # SonarQube 專案金鑰
+SONARQUBE_HOST_URL: ''                     # SonarQube 伺服器 URL
+SONARQUBE_LOGIN_TOKEN: ''                  # SonarQube 登入令牌 (來自 GitHub Secrets)
+
+# Docker 映像相關
+DOTNET_SDK_IMAGE_REPOSITORY: 'mcr.microsoft.com/dotnet/sdk'  # .NET SDK 基礎映像
+DOTNET_RUNTIME_IMAGE_REPOSITORY: 'mcr.microsoft.com/dotnet/aspnet'  # .NET Runtime 基礎映像
+BUILD_IMAGE: 'true'                        # 編譯後建立 Docker 映像
+DOCKERFILE_PATH: 'Dockerfile'              # Dockerfile 路徑
+
+# 程式包與發佈
+PUBLISH_ARTIFACT: 'true'                   # 發佈成品
+ARTIFACT_NAME: 'dotnet-build'              # 成品名稱
+ARTIFACT_RETENTION_DAYS: '30'              # 成品保留天數
+
+# 代碼品質檢查
+ENABLE_STATIC_ANALYSIS: 'true'             # 啟用靜態分析
+ENABLE_SECURITY_SCAN: 'false'              # 啟用安全掃描
+ENABLE_DEPENDENCY_CHECK: 'false'           # 啟用依賴檢查
+
+# 其他配置
+RESTORE_PACKAGES: 'true'                   # 還原 NuGet 套件
+ENABLE_DEBUG_OUTPUT: 'false'               # 啟用調試輸出
+TRIM_ASSEMBLY: 'false'                     # 啟用程式集裁剪 (ReadyToRun, TieredCompilation 等)

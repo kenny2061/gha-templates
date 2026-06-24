@@ -1,0 +1,47 @@
+# GCP Cloud Services Configuration Variables Template
+# Google Cloud Platform 相關的變數設定
+
+# GCP 專案配置
+GCP_PROJECT_ID: 'my-gcp-project-id'  # Required: GCP Project ID
+GCP_REGION: 'asia-east1'                  # Required: GCP 區域
+
+# Image Registry 相關
+IMG_REGISTRY_SERVICE_NAME: 'GCPArtifacts'  # Required: 容器映像庫服務名稱
+IMG_REPOSITORY: 'images'   # Required: 容器映像倉庫路徑 (格式: project/path/image-name)
+IMG_REGISTRY: 'asia-east1-docker.pkg.dev' # Container Registry 主機
+
+DOCKER_REGISTRY_URI: 'asia-east1-docker.pkg.dev/my-gcp-project-id/images'  # 完整映像庫 URI
+
+# VPC Connector 相關 (可選)
+VPC_CONNECTOR_NAME: ''                     # VPC Connector 名稱
+VPC_CONNECTOR_FULL_PATH: ''                # VPC Connector 完整路徑 (projects/{id}/locations/{region}/connectors/{name})
+
+# Cloud Run 部署配置
+CLOUDRUN_REGION: 'asia-east1'              # Cloud Run 部署區域
+CLOUDRUN_SERVICE_NAME: ''                  # Required: Cloud Run 服務名稱
+CLOUDRUN_SERVICE_ACCOUNT: ''               # Cloud Run 服務帳戶 (可選)
+CLOUDRUN_DEFAULT_PORT: '8080'              # 容器預設連接埠
+CLOUDRUN_MEMORY: '1Gi'                    # 記憶體配置 (256Mi, 512Mi, 1Gi, 2Gi, 4Gi, 6Gi, 8Gi)
+CLOUDRUN_CPU: '1'                         # CPU 配置 (0.25, 0.5, 1, 2, 4, 6, 8)
+CLOUDRUN_CONCURRENCY: '80'                # 並行請求數限制
+CLOUDRUN_MIN_INSTANCES: '0'               # 最小實例數
+CLOUDRUN_MAX_INSTANCES: '5'               # 最大實例數
+CLOUDRUN_REQUEST_TIMEOUT: '180s'          # 請求逾時時間
+CLOUDRUN_GENERATION: 'gen2'               # Cloud Run 世代 (gen1, gen2)
+CLOUDRUN_INGRESS: 'all'                   # 流量控制 (all, internal, internal-and-cloud-load-balancing)
+
+# Cloud Run 標籤 (可選)
+CLOUDRUN_COMMON_LABELS: ''                 # 通用標籤 (格式: key1=value1,key2=value2,)
+CLOUDRUN_BASE_LABELS: ''                   # 基礎標籤
+CLOUDRUN_CUSTOM_LABELS: ''                 # 自訂標籤
+
+# 其他 GCP 服務配置 (可選)
+GCP_CLOUDRUN_PERMISSION_FILE: 'build-and-deploy.json'  # Cloud Run 部署授權檔名
+GCP_ENABLE_API: 'true'                    # 自動啟用必要的 GCP APIs
+GCP_ENABLE_VPC_CONNECTOR: 'false'          # 啟用 VPC Connector
+GCP_BACKUP_GCS_BUCKET: 'gcs-backup-bucket'                      # GCS 備份桶名稱 (可選)
+
+
+# GitHub Container Registry (如果使用 GitHub 容器庫而非 GCP Artifact Registry)
+USE_GHCR: 'false'                         # 是否使用 GitHub Container Registry
+GHCR_REGISTRY: 'ghcr.io'                  # GitHub Container Registry 主機

@@ -1,0 +1,103 @@
+name: 檢查必要目錄是否存在 & 組合路徑
+
+inputs:
+  source_folder:
+    description: 'The source folder to link for actions (e.g., src)'
+    required: false
+    type: string
+    default: ''
+  output_folder:
+    description: 'The output folder for build artifacts (e.g., dist)'
+    required: false
+    type: string
+    default: ''
+  clean_output_folder:
+    description: 'Whether to clean the output folder before running the container'
+    required: false
+    type: boolean
+    default: false
+  container_shell_type:
+    description: 'The shell type to use for running commands (e.g., bash, pwsh)'
+    required: false
+    type: string
+    default: 'bash'
+  shell_script_path:
+    description: 'The shell script to run inside the container (e.g., build.sh)'
+    required: true
+    type: string
+    default: ''
+  container_image:
+    description: 'The Docker image to use for the build container (e.g., mcr.microsoft.com/dotnet/sdk:6.0)'
+    required: true
+    type: string
+    default: ''
+  docker_run_options:
+    description: 'Additional options to pass to docker run (e.g., -v /host/path:/container/path)'
+    required: false
+    type: string
+    default: ''
+  checkout_repo_pat:
+    description: 'Personal Access Token (PAT) for checking out private repositories if needed inside the container'
+    required: false
+    type: string
+    default: ''
+
+runs:
+  using: "composite"
+  steps:
+    - name: Ensure Docker available (for container builds)
+      shell: bash
+      run: |
+          set -euo pipefail
+          if command -v docker &> /dev/null; then
+            echo "docker present"
+            exit 0
+          fi
+          if command -v apt-get &> /dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y docker.io || (echo 'Failed to install docker' && exit 1)
+          else
+            echo 'docker not found and cannot install on this runner. Provide a runner with docker available.'
+            exit 1
+          fi
+    - name: Run container
+      shell: bash
+      env:
+        SOURCE_FOLDER: ${{ inputs.source_folder || github.workspace }}
+        OUTPUT_FOLDER: ${{ inputs.output_folder || env.BUILD_OUTPUT_FOLDER_PATH }}
+        CLEAN_OUTPUT_FOLDER: ${{ inputs.clean_output_folder }}
+        SCRIPT_PATH: ${{ inputs.shell_script_path }}
+        IMAGE: ${{ inputs.container_image }}
+        PAT: ${{ inputs.checkout_repo_pat }}
+      run: |
+        set -euo pipefail
+        if [ -z "$IMAGE" ]; then
+          echo "image uri not provided" >&2
+          exit 1
+        fi
+
+        if [ -d "$OUTPUT_FOLDER" && "$CLEAN_OUTPUT_FOLDER" ]; then
+          echo "Output folder $OUTPUT_FOLDER already exists, removing it first"
+          rm -rf "$OUTPUT_FOLDER"
+        else
+          echo "Output folder $OUTPUT_FOLDER does not exist, creating it"
+          mkdir -p "$OUTPUT_FOLDER"
+        fi
+
+        chmod +x "$SCRIPT_PATH"
+
+        echo "Pulling image $IMAGE"
+
+        docker pull "$IMAGE"
+
+        echo "Running container with image $IMAGE"
+
+        docker run --user root --rm \
+          -v "$SOURCE_FOLDER:/tmp/source" \
+          -v "$OUTPUT_FOLDER:/tmp/output" \
+          -v "$SCRIPT_PATH:/tmp/run_script.sh" \
+          -e "OUTPUT_FOLDER=/tmp/output" \
+          -e "SOURCE_FOLDER=/tmp/source" \
+          -e "PAT=$PAT" \
+          ${{ inputs.docker_run_options }} -w /tmp/source \
+          "$IMAGE" ${{ inputs.container_shell_type }} -c "/tmp/run_script.sh"

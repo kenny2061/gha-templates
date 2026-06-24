@@ -1,0 +1,284 @@
+name: Build DotNet
+
+on:
+  workflow_call:
+    inputs:
+      src-path:
+        required: false
+        type: string
+        default: 'src'
+      sln-or-csproj-name:
+        required: true
+        type: string
+        description: 'Solution or Project file name'
+      build-configuration:
+        required: false
+        type: string
+        default: 'Release'
+      dotnet-version:
+        required: false
+        type: string
+        default: '8.0.x'
+      use-build-container:
+        required: false
+        type: boolean
+        default: false
+        description: 'Whether to run build inside a provided container image'
+      build-container-image:
+        required: false
+        type: string
+        default: ''
+        description: 'Container image to use for build (must contain dotnet SDK)'
+      container-src-mount:
+        required: false
+        type: string
+        default: '/workspace'
+        description: 'Container path to mount repository root'
+      container-out-mount:
+        required: false
+        type: string
+        default: '/workspace/build-output'
+        description: 'Container path for build output'
+      run-sonar-scanner:
+        required: false
+        type: boolean
+        default: false
+      caller-repo:
+        required: false
+        type: string
+        description: 'The repository that called this workflow (owner/repo)'
+      caller-ref:
+        required: false
+        type: string
+        description: 'The Git ref of the calling repository'
+      pre-build-workflow:
+        required: false
+        type: string
+        description: 'Path to pre-build workflow file (e.g., .github/workflows/pre-build.yaml)'
+      pre-build-args:
+        required: false
+        type: string
+        default: '{}'
+        description: 'JSON string of arguments for the pre-build workflow'
+      post-build-workflow:
+        required: false
+        type: string
+        description: 'Path to post-build workflow file (e.g., .github/workflows/post-build.yaml)'
+      post-build-args:
+        required: false
+        type: string
+        default: '{}'
+        description: 'JSON string of arguments for the post-build workflow'
+      publish-output-artifact:
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      sonar-host-url:
+        required: false
+      sonar-login-token:
+        required: false
+      github-token:
+        required: false
+
+jobs:
+  build:
+    name: Build DotNet Project
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source repository
+        uses: actions/checkout@v4
+
+      - name: Checkout caller repository (for external workflow files)
+        if: inputs.caller-repo != ''
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.caller-repo }}
+          ref: ${{ inputs.caller-ref }}
+          path: caller-repo-checkout
+          token: ${{ secrets.github-token || secrets.GITHUB_TOKEN }}
+
+      - name: Setup .NET
+        if: ${{ inputs.use-build-container != true }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+
+      - name: Ensure Docker available (for container builds)
+        if: ${{ inputs.use-build-container == true }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v docker &> /dev/null; then
+            echo "docker present"
+            exit 0
+          fi
+          if command -v apt-get &> /dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y docker.io || (echo 'Failed to install docker' && exit 1)
+          else
+            echo 'docker not found and cannot install on this runner. Provide a runner with docker available.'
+            exit 1
+          fi
+
+      - name: Print parameters and variables
+        shell: bash
+        run: |
+          echo "=== Build Parameters ==="
+          echo "Source Path: ${{ inputs.src-path }}"
+          echo "Solution/Project: ${{ inputs.sln-or-csproj-name }}"
+          echo "Build Configuration: ${{ inputs.build-configuration }}"
+          echo "DotNet Version: ${{ inputs.dotnet-version }}"
+          echo "Run Sonar Scanner: ${{ inputs.run-sonar-scanner }}"
+          echo "Pre-Build Workflow: ${{ inputs.pre-build-workflow }}"
+          echo "Post-Build Workflow: ${{ inputs.post-build-workflow }}"
+
+      - name: Create pipeline files folder
+        shell: bash
+        run: |
+          mkdir -p ${{ runner.temp }}/pipeline-files
+          mkdir -p ${{ runner.temp }}/build-output
+          mkdir -p ${{ runner.temp }}/zip-files
+
+      - name: Run pre-build workflow
+        if: inputs.pre-build-workflow != ''
+        shell: bash
+        run: |
+          PRE_BUILD_FILENAME=$(basename "${{ inputs.pre-build-workflow }}")
+          
+          # Install GitHub CLI
+          if ! command -v gh &> /dev/null; then
+            sudo apt-get update && sudo apt-get install -y gh
+          fi
+          
+          # Authenticate GitHub CLI
+          echo "${{ secrets.github-token || secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+          
+          # Trigger pre-build workflow in caller's repository
+          echo "Triggering pre-build workflow: ${{ inputs.pre-build-workflow }}"
+          gh workflow run "$PRE_BUILD_FILENAME" \
+            --repo "${{ inputs.caller-repo }}" \
+            --ref "${{ inputs.caller-ref }}" \
+            -F args_json='${{ inputs.pre-build-args }}'
+        env:
+          GITHUB_TOKEN: ${{ secrets.github-token || secrets.GITHUB_TOKEN }}
+
+      - name: Restore dependencies
+        if: ${{ inputs.use-build-container != true }}
+        shell: bash
+        run: |
+          dotnet restore "${{ inputs.src-path }}/${{ inputs.sln-or-csproj-name }}"
+
+      - name: Container Build & Publish (if requested)
+        if: ${{ inputs.use-build-container == true }}
+        shell: bash
+        env:
+          GITHUB_WORKSPACE: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          IMAGE="${{ inputs.build-container-image }}"
+          if [ -z "$IMAGE" ]; then
+            echo "build-container-image not provided" >&2
+            exit 1
+          fi
+          HOST_OUT_DIR="${{ runner.temp }}/build-output"
+          mkdir -p "$HOST_OUT_DIR"
+          echo "Pulling image $IMAGE"
+          docker pull "$IMAGE"
+          echo "Running build inside container"
+          SLN_NAME="${{ inputs.sln-or-csproj-name }}"
+          SRC_PATH_IN_CONTAINER="${{ inputs.container-src-mount }}/${{ inputs.src-path }}"
+          OUT_PATH_IN_CONTAINER="${{ inputs.container-out-mount }}"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE":${{ inputs.container-src-mount }} \
+            -v "$HOST_OUT_DIR":${{ inputs.container-out-mount }} \
+            -w "$SRC_PATH_IN_CONTAINER" \
+            "$IMAGE" bash -lc "dotnet restore \"$SLN_NAME\" && dotnet publish \"$SLN_NAME\" -c ${{ inputs.build-configuration }} -o \"$OUT_PATH_IN_CONTAINER\" --no-build"
+
+      - name: Setup SonarQube Scanner
+        if: inputs.run-sonar-scanner == true
+        uses: highbyte/sonarscan-dotnet@v2.3.0
+        with:
+          sonarProjectKey: ${{ github.event.repository.name }}
+          sonarProjectName: ${{ github.event.repository.name }}
+          sonarHostUrl: ${{ secrets.sonar-host-url }}
+          sonarLogin: ${{ secrets.sonar-login-token }}
+
+      - name: Build
+        if: ${{ inputs.use-build-container != true }}
+        shell: bash
+        run: |
+          dotnet build "${{ inputs.src-path }}/${{ inputs.sln-or-csproj-name }}" \
+            --configuration ${{ inputs.build-configuration }} \
+            --no-restore \
+            --output ${{ runner.temp }}/build-output
+
+      - name: Publish
+        if: ${{ inputs.use-build-container != true }}
+        shell: bash
+        run: |
+          dotnet publish "${{ inputs.src-path }}/${{ inputs.sln-or-csproj-name }}" \
+            --configuration ${{ inputs.build-configuration }} \
+            --no-build \
+            --output ${{ runner.temp }}/build-output
+
+      - name: Run post-build workflow
+        if: inputs.post-build-workflow != ''
+        shell: bash
+        run: |
+          POST_BUILD_FILENAME=$(basename "${{ inputs.post-build-workflow }}")
+          
+          # Install GitHub CLI
+          if ! command -v gh &> /dev/null; then
+            sudo apt-get update && sudo apt-get install -y gh
+          fi
+          
+          # Authenticate GitHub CLI
+          echo "${{ secrets.github-token || secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+          
+          # Trigger post-build workflow in caller's repository
+          echo "Triggering post-build workflow: ${{ inputs.post-build-workflow }}"
+          gh workflow run "$POST_BUILD_FILENAME" \
+            --repo "${{ inputs.caller-repo }}" \
+            --ref "${{ inputs.caller-ref }}" \
+            -F args_json='${{ inputs.post-build-args }}'
+        env:
+          GITHUB_TOKEN: ${{ secrets.github-token || secrets.GITHUB_TOKEN }}
+
+      - name: Archive files to zip
+        shell: bash
+        run: |
+          cd ${{ runner.temp }}/build-output
+          zip -r ${{ runner.temp }}/zip-files/buildResult.zip . -x "*.git*"
+          ls -lah ${{ runner.temp }}/zip-files/buildResult.zip
+
+      - name: Capture git commit SHA
+        id: git-sha
+        shell: bash
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          echo "$(git rev-parse HEAD)" > ${{ runner.temp }}/pipeline-files/gitCommitSHA.txt
+
+      - name: Upload build output artifact
+        if: inputs.publish-output-artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output-files
+          path: ${{ runner.temp }}/zip-files/buildResult.zip
+          retention-days: 30
+
+      - name: Upload pipeline files artifact
+        if: inputs.publish-output-artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-files
+          path: ${{ runner.temp }}/pipeline-files/
+          retention-days: 30
+
+      - name: Upload SonarQube Report
+        if: inputs.run-sonar-scanner == true
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonarqube-report
+          path: ${{ runner.temp }}/sonarqube-report
+          retention-days: 7

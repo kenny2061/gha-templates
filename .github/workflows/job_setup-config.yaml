@@ -1,0 +1,104 @@
+name: Shared Configuration Loader
+
+on:
+  workflow_call:
+    inputs:
+      app_name: # 應用程式的名稱，通常就是儲存庫名稱
+        description: 'The name of the application repository (e.g., ComplexDotNetSystem)'
+        required: true
+        type: string
+      app_repo:
+        required: false
+        type: string
+        description: 'Application repository name (e.g., your-org/your-app-repo)'
+      app_ref:
+        required: false
+        type: string
+        description: 'Application repository Git ref (branch/tag/commit)'
+      program_type:
+        description: 'The type of application (e.g., web, api, app, prog)'
+        required: true
+        type: string
+      # ✨ 新增這個參數：用來接收呼叫端的所有 inputs
+      override_inputs:
+        description: 'JSON string of caller inputs to override config'
+        required: false
+        type: string
+        default: '{}' 
+
+      # With default values
+      template_repo:
+        required: false
+        type: string
+        default: ''
+      template_ref:
+        required: false
+        type: string
+        default: ''
+      pipeline_repo:
+        required: false
+        type: string
+        default: ''
+      pipeline_repo_ref:
+        required: false
+        type: string
+        default: ''      
+    outputs:
+      merged_config_json:
+        description: 'JSON string of all merged configuration variables'
+        value: ${{ jobs.load_and_merge_config.outputs.merged_config }}
+    secrets:
+      PAT_FOR_CHECKOUT_REPO: # 用於取出 Pipeline Repo 的 PAT
+        required: true
+
+jobs:
+  load_and_merge_config:
+    runs-on: ubuntu-latest
+    outputs:
+      merged_config: ${{ steps.load-pipeline-vars.outputs.loaded_vars }}
+    steps:
+      - name: Checkout Pipeline Repository
+        uses: ./actions/checkout-repo@main
+        with:
+          template_repo: ${{ inputs.template_repo }} # .
+          template_ref: ${{ inputs.template_ref }}
+          pipeline_repo: ${{ inputs.pipeline_repo }} # kenny2061/Pipelines
+          pipeline_repo_ref: ${{ inputs.pipeline_repo_ref }}
+          application_repo: ${{ inputs.app_repo }}
+          application_ref: ${{ inputs.app_ref }}
+          token: ${{ secrets.PAT_FOR_CHECKOUT_REPO }} # 使用傳入的 PAT
+
+      - name: Install YQ and JQ
+        run: |
+          # 1. 安裝 jq (apt 的 jq 沒問題)
+          sudo apt-get update && sudo apt-get install -y jq wget
+
+          # 2. 安裝 Go 版的 yq (mikefarah/yq)
+          # 注意：不要用 apt-get install yq，那會裝成 Python 版
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          
+          # 3. 給予執行權限
+          sudo chmod a+x /usr/local/bin/yq
+
+          # 4. 驗證版本 (確認是否看到 mikefarah 字樣)
+          echo "yq version installed:"
+          yq --version
+
+      - name: Load Templates Variables
+        id: load-template-vars
+        uses: ./actions/load-variables@main
+        with:
+          folder: templates
+          yaml_files: 'variables/cloudServices/*.yaml,variables/codeType/**/*.yaml,variables/variables-template.yaml'
+          exclude_files: 'aws-*.yaml,aws-*.yml,azure-*.yaml,azure-*.yml,php-*.yaml,php-*.yml,react-*.yaml,react-*.yml,dotnet-*.yaml,dotnet-*.yml'
+          override_inputs: ${{ inputs.override_inputs }}
+      
+      - name: Load Pipelines Variables
+        id: load-pipeline-vars
+        uses: ./actions/load-variables@main
+        with:
+          folder: pipelines
+          yaml_files: 'variables/**/*-variables.yaml,variables/**/*-variables.yml,${{ inputs.app_name }}/${{ inputs.program_type }}/variables/**/*-variables.yaml,${{ inputs.app_name }}/${{ inputs.program_type }}/variables/**/*-variables.yml'
+          override_inputs: ${{ inputs.override_inputs }}
+          preload_vars_json: ${{ steps.load-template-vars.outputs.loaded_vars }}
+

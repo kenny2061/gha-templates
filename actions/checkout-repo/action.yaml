@@ -1,0 +1,58 @@
+name: Checkout Repository
+
+
+inputs:
+  template_repo:
+    required: false
+    type: string
+    default: ''
+  template_ref:
+    required: false
+    type: string
+    default: ''
+  pipeline_repo:
+    required: false
+    type: string
+    default: ''
+  pipeline_repo_ref:
+    required: false
+    type: string
+    default: ''
+  application_repo:
+    required: false
+    type: string
+    default: ''
+  application_ref:
+    required: true
+    type: string
+    default: ''
+  token:
+    required: true
+    type: string
+    default: ''
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout Template Repository
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ format('kenny2061/{0}', inputs.template_repo || 'gha-templates') }}
+        ref: ${{ inputs.template_ref || 'master' }}
+        path: templates
+        token: ${{ inputs.token }}
+    - name: Checkout Pipeline Repository
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ format('kenny2061/{0}', inputs.pipeline_repo || 'Pipelines') }}
+        ref: ${{ inputs.pipeline_repo_ref || 'master' }}
+        path: pipelines
+        token: ${{ inputs.token }}
+    - name: Checkout Application Repository
+      if: ${{ inputs.application_repo != '' }}
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.application_repo }}
+        ref: ${{ inputs.application_ref }}
+        path: sources
+        token: ${{ inputs.token }}

@@ -1,0 +1,82 @@
+# PHP Build Configuration Variables Template
+# PHP 代碼類型的編譯相關變數設定
+
+# 基本編譯配置
+CODE_TYPE: 'php'                           # 代碼類型標識符
+PHP_VERSION: '8.2'                         # Required: PHP 版本
+COMPOSER_VERSION: '2.x'                    # Composer 版本
+
+# 編譯路徑與檔案
+BUILD_SOURCE_FILE: 'composer.json'         # 編譯檔案 (composer.json)
+SRC_PATH: 'src'                            # 源碼目錄路徑
+BUILD_OUTPUT_DIR: 'dist'                   # 編譯輸出目錄
+PUBLIC_DIR: 'public'                       # Web 根目錄
+
+# Composer 相關
+COMPOSER_ALLOW_SUPERUSER: '1'              # 允許 Superuser (Docker 中必需)
+COMPOSER_HOME: '/tmp/composer'             # Composer 主目錄
+COMPOSER_CACHE_DIR: '/tmp/composer/cache'  # Composer 緩存目錄
+COMPOSER_INSTALL_FLAGS: '--no-dev --optimize-autoloader'  # 額外 Composer 標誌
+COPY_COMPOSER_CONFIG: 'false'              # 複製 composer.json 相關檔案
+
+# 編譯配置
+BUILD_SCRIPT: 'composer install'           # 編譯腳本
+BUILD_CONFIGURATION: 'production'          # 編譯配置 (development, production)
+SKIP_COMPOSER_SCRIPTS: 'false'             # 跳過 Composer 腳本
+
+# 測試相關
+RUN_UNIT_TESTS: 'true'                     # 執行單位測試
+TEST_FRAMEWORK: 'phpunit'                  # 測試框架 (phpunit, pest, etc.)
+TEST_SCRIPT: 'phpunit'                     # 測試腳本命令
+RUN_CODE_ANALYSIS: 'true'                  # 執行代碼分析
+CODE_COVERAGE_THRESHOLD: '60'              # 代碼覆蓋率閾值 (%)
+
+# PHP 靜態分析工具
+ENABLE_PHPSTAN: 'true'                     # 啟用 PHPStan
+PHPSTAN_LEVEL: '5'                         # PHPStan 分析級別 (0-9)
+PHPSTAN_CONFIG: 'phpstan.neon'             # PHPStan 配置檔
+
+# 代碼風格檢查
+ENABLE_PHP_CS_FIXER: 'true'                # 啟用 PHP CS Fixer
+PHP_CS_CONFIG: '.php-cs-fixer.php'         # PHP CS Fixer 配置檔
+ENABLE_PHPCS: 'false'                      # 啟用 PHP CodeSniffer
+PHPCS_STANDARD: 'PSR12'                    # PHPCS 編碼標準
+
+# 安全掃描
+ENABLE_PSALM: 'false'                      # 啟用 Psalm (靜態分析器)
+ENABLE_SECURITY_CHECKER: 'false'           # 啟用安全檢查器
+ENABLE_SONARQUBE: 'false'                  # 啟用 SonarQube 掃描
+
+# 依賴相關
+ENABLE_COMPOSER_AUDIT: 'true'              # 執行 composer audit (依賴安全檢查)
+UPDATE_COMPOSER_LOCK: 'false'              # 更新 composer.lock
+
+# 環境配置
+ENABLE_ENV_FILE: 'true'                    # 使用 .env 檔案
+ENV_TEMPLATE: '.env.example'               # .env 模板檔案
+DATABASE_MIGRATION: 'false'                # 執行資料庫遷移
+
+# Docker 映像相關
+PHP_BASE_IMAGE: 'php:8.2-fpm-alpine'       # PHP 基礎映像
+NGINX_BASE_IMAGE: 'nginx:alpine'           # Nginx 基礎映像
+BUILD_IMAGE: 'true'                        # 編譯後建立 Docker 映像
+DOCKERFILE_PATH: 'Dockerfile'              # Dockerfile 路徑
+USE_MULTI_STAGE_BUILD: 'true'              # 使用多階段構建
+
+# 程式包與發佈
+PUBLISH_ARTIFACT: 'true'                   # 發佈成品
+ARTIFACT_NAME: 'php-build'                 # 成品名稱
+ARTIFACT_RETENTION_DAYS: '30'              # 成品保留天數
+COMPRESS_ARTIFACT: 'true'                  # 壓縮成品
+
+# 最佳化設定
+ENABLE_OPCACHة: 'true'                     # 啟用 OPCache
+ENABLE_XDEBUG: 'false'                     # 啟用 Xdebug (調試用)
+ENABLE_PROFILING: 'false'                  # 啟用效能分析
+
+# PHP 擴展
+PHP_EXTENSIONS: 'pdo_mysql,opcache,apcu'  # 需要安裝的 PHP 擴展
+
+# 其他配置
+ENABLE_DEBUG_OUTPUT: 'false'               # 啟用調試輸出
+ENABLE_STRICT_TYPES: 'true'                # 啟用嚴格類型檢查

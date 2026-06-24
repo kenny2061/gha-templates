@@ -1,0 +1,548 @@
+name: Deploy to Kubernetes (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      # Required Inputs
+      app_name:
+        description: 'The name of the application repository'
+        required: true
+        type: string
+      program_type:
+        description: 'The type of application (e.g., web, api, app, prog)'
+        required: true
+        type: string
+      merged_config_json:
+        description: 'JSON string of merged configuration variables'
+        required: true
+        type: string
+      code_type:
+        description: '程式類型 (go | nodejs | python | java)'
+        required: true
+        type: string
+
+      deploy_environment:
+        required: true
+        type: string
+        description: 'dev | test | stg | prod'
+      # deploy_target:
+      #   description: '部署目標 (local | gcp)'
+      #   required: true
+      #   type: string
+      #   default: 'local'
+
+      # With default values
+      template_repo:
+        required: false
+        type: string
+        default: ''
+      template_ref:
+        required: false
+        type: string
+        default: ''
+      pipeline_repo:
+        required: false
+        type: string
+        default: ''
+      pipeline_repo_ref:
+        required: false
+        type: string
+        default: ''
+
+      secrets_repo:
+        required: false
+        type: string
+        default: 'Secrets'
+      secrets_repo_ref:
+        required: false
+        type: string
+        default: 'main'
+
+      k8s_location:
+        required: false
+        type: string
+        default: local
+      k8s_namespace:
+        required: false
+        type: string
+        default: ''
+      wait_timeout_second:
+        required: false
+        type: number
+        default: 300
+      update_image_tag:
+        required: false
+        type: boolean
+        default: true
+      image_tag:
+        required: false
+        type: string
+        default: latest
+      ci_workflow_run_id:
+        required: false
+        type: string
+        default: ''
+
+      kubeconfig_file:
+        required: false
+        type: string
+        default: 'cicd-kubeconfig.yaml'
+
+      runs_on:
+        description: 'The type of runner to use'
+        required: false
+        type: string
+        default: ''
+
+      # Extendsible Workflow
+      run_pre_deploy_k8s_action:
+        required: false
+        type: boolean
+        default: false
+      pre_deploy_k8s_action_args:
+        required: false
+        type: string
+        default: ''
+      run_post_deploy_k8s_action:
+        required: false
+        type: boolean
+        default: false
+      post_deploy_k8s_action_args:
+        required: false
+        type: string
+        default: ''
+
+    secrets:
+      PAT_FOR_CHECKOUT_REPO:
+        required: true
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.deploy_environment }} K8s
+    runs-on: ${{ inputs.runs_on != '' && fromJSON(inputs.runs_on) || 'ubuntu-latest' }}
+    permissions: 
+      id-token: write
+      contents: write
+      pull-requests: write
+      issues: write
+    outputs:
+      k8s_yaml_file: ${{ steps.set_outputs.outputs.k8s_yaml_file }}
+      k8s_name_label: ${{ steps.set_outputs.outputs.k8s_name_label }}
+    steps:
+      - name: 將 JSON 轉為 Env
+        uses: ./actions/convert-json-to-env@main
+        with:
+          merged_config_json: ${{ inputs.merged_config_json }}
+
+      - name: Checkout Pipeline Repository
+        uses: ./actions/checkout-repo@main
+        with:
+          template_repo: ${{ inputs.template_repo }} # .
+          template_ref: ${{ inputs.template_ref }}
+          pipeline_repo: ${{ inputs.pipeline_repo }} # kenny2061/Pipelines
+          pipeline_repo_ref: ${{ inputs.pipeline_repo_ref }}
+          token: ${{ secrets.PAT_FOR_CHECKOUT_REPO }} # 使用傳入的 PAT
+
+      - name: Check Folders
+        uses: ./actions/setup-folders@main
+        with:
+          app_name: ${{ inputs.app_name }}
+          program_type: ${{ inputs.program_type }}
+          actions_symbol_link_place: ${{ github.workspace }}  # 這裡沒有checkout app repo(沒有sources)，所以用workspace路徑
+
+      - name: Checkout secrets repository (optional)
+        if: ${{ inputs.secrets_repo != '' }}
+        uses: actions/checkout@v4
+        with:
+          repository: kenny2061/${{ inputs.secrets_repo }}
+          ref: ${{ inputs.secrets_repo_ref }}
+          path: secrets
+          token: ${{ secrets.PAT_FOR_CHECKOUT_REPO }}
+
+      - name: Get Image Tag from CI Run ID
+        id: get_image_tag
+        if: ${{ inputs.ci_workflow_run_id != '' && (inputs.deploy_environment == 'stg' || inputs.deploy_environment == 'prod') }}
+        uses: actions/github-script@v7 # 使用 GitHub Script Action 呼叫 GitHub API
+        env:
+          CI_RUN_ID: ${{ inputs.ci_workflow_run_id }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # 內建 token 通常足夠讀取同 repo 的 workflow run 資訊
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const runId = parseInt(process.env.CI_RUN_ID);
+
+            console.log(`Checking status for workflow run ${runId}...`);
+
+            // 1. 獲取 CI 流程的詳細資訊
+            let workflowRun;
+            try {
+              const response = await github.rest.actions.getWorkflowRun({
+                owner,
+                repo,
+                run_id: runId,
+              });
+              workflowRun = response.data;
+            } catch (error) {
+              core.setFailed(`Failed to get workflow run ${runId}: ${error.message}`);
+              return;
+            }
+
+            // 2. 檢查 CI 流程是否成功
+            if (workflowRun.conclusion !== 'success') {
+              // 直接讓步驟失敗，這會預設終止整個 Job
+              core.setFailed(`CI workflow run ${runId} did not complete successfully. Status: ${workflowRun.status}, Conclusion: ${workflowRun.conclusion}`);
+              return;
+            }
+
+            console.log(`CI workflow run ${runId} was successful.`);
+
+            // 3. 設定輸出變數 (Output)
+            // 這裡我們直接使用 runId 作為 image_tag
+            // 您也可以在這裡加入邏輯：如果 inputs.image_tag 有值就用它，否則用 runId
+            // 但根據您的描述，您似乎想強制使用 runId
+            const ci_image_tag = runId.toString();
+            
+            core.setOutput('ci_image_tag', ci_image_tag);
+            console.log(`Set ci_image_tag to: ${ci_image_tag}`);
+
+      - name: Pre deploy k8s action
+        if: ${{ inputs.run_pre_deploy_k8s_action == true }}
+        uses: ./.actions/pre-deploy-k8s
+        with:
+          args_json: ${{ inputs.pre_deploy_k8s_action_args }}
+          merged_config_json: ${{ inputs.merged_config_json }}
+
+      - name: Ensure required tools (kubectl, yq)
+        shell: bash
+        run: |
+          set -euo pipefail
+          
+          # 0. 確保 /usr/local/bin 在 PATH 中 (解決找不到指令的問題)
+          export PATH=$PATH:/usr/local/bin
+          echo "/usr/local/bin" >> $GITHUB_PATH
+
+          # 1. 檢查並安裝 kubectl
+          if ! command -v kubectl &> /dev/null; then
+            echo "kubectl not found. Installing via binary..."
+            curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+            chmod +x kubectl
+            sudo mv kubectl /usr/local/bin/
+            echo "kubectl installed successfully."
+          else
+            echo "kubectl is already installed."
+          fi
+
+          # 2. 檢查並安裝 yq
+          if ! command -v yq &> /dev/null; then
+            echo "yq not found. Installing via binary..."
+            # 使用 sudo 下載並移動，避免權限問題
+            sudo curl -L "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64" -o /usr/local/bin/yq
+            sudo chmod +x /usr/local/bin/yq
+            echo "yq installed successfully."
+          else
+            echo "yq is already installed."
+          fi
+          
+          # 3. 最終驗證 (使用 hash -r 刷新 shell 快取)
+          hash -r 
+          
+          echo "Verifying versions:"
+          # 修正：移除已棄用的 --short 參數
+          kubectl version --client
+          
+          # 嘗試直接呼叫絕對路徑，確保檔案真的存在且可執行
+          if command -v yq &> /dev/null; then
+            yq --version
+          else
+            echo "Warning: yq not found in PATH, checking absolute path..."
+            /usr/local/bin/yq --version
+          fi
+
+      - name: Configure kubeconfig from secrets repo
+        if: ${{ inputs.secrets_repo != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.kubeconfig_file }}" ]; then
+            KUBE_REL_PATH="${{ inputs.kubeconfig_file }}"
+          else
+            # fall back to variable from merged config
+            if [ -n "${KUBECONFIG_FILE:-}" ]; then
+              KUBE_REL_PATH="$KUBECONFIG_FILE"
+            else
+              echo "kubeconfig_file input not provided and KUBECONFIG_FILE not set in merged variables." >&2
+              exit 1
+            fi
+          fi
+          KUBE_PATH="${{ env.SECRETS_FILES_PATH }}/k8s/${{ inputs.k8s_location }}/${{ inputs.deploy_environment }}-${KUBE_REL_PATH}"
+          if [ ! -f "$KUBE_PATH" ]; then
+            echo "Kubeconfig file not found at $KUBE_PATH" >&2
+            exit 1
+          fi
+          echo "KUBECONFIG=$KUBE_PATH" >> $GITHUB_ENV
+          echo "KUBECONFIG=$KUBE_PATH" >> $GITHUB_OUTPUT
+          echo "Using kubeconfig: $KUBE_PATH"
+
+      - name: Merge environment variables
+        id: merge_env_vars
+        uses: ./actions/merge-env@main
+        with:
+          app_name: ${{ inputs.app_name }}
+          program_type: ${{ inputs.program_type }}
+          deploy_environment: ${{ inputs.deploy_environment }}
+          deploy_type: k8s
+          deploy_target: ${{ inputs.k8s_location }}
+          code_type: ${{ inputs.code_type }}
+      
+      - name: Upload pipeline files artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: K8s_Environment_Variables
+          path: ${{ steps.merge_env_vars.outputs.merged_and_replace_envVars_file }}
+          retention-days: 30
+
+      - name: Create symbolic link to k8s template yaml files folder
+        shell: bash
+        env:
+          TemplatesFolder: ${{ env.TEMPLATE_FILES_PATH }}
+          PipelinesFolder: ${{ env.PIPELINE_FILES_PATH }}
+          SecretsFolder: ${{ env.SECRETS_FILES_PATH }}
+          AppName: ${{ inputs.app_name }}
+        run: |
+          set -euo pipefail
+          /bin/bash $TemplatesFolder/scripts/shell/create-symbolic-link.sh
+          
+      - name: Copy merged full environment variables file
+        shell: bash
+        env:
+          TemplatesFolder: ${{ env.TEMPLATE_FILES_PATH }}
+          PipelinesFolder: ${{ env.PIPELINE_FILES_PATH }}
+          ProjectYamlRootFolder: ${{ env.APP_PIPELINE_FILES_PATH }}
+          ProgramType: ${{ inputs.program_type }}
+          MergedEnvFile: ${{ steps.merge_env_vars.outputs.merged_no_secrets_envVars_file }}
+          MergedSecretFile: ${{ steps.merge_env_vars.outputs.merged_secrets_envVars_file }}
+          K8sLocation: ${{ inputs.k8s_location }}
+          CodeType: ${{ inputs.code_type }}
+          DeployEnvironment: ${{ inputs.deploy_environment }}
+        run: |
+          set -euo pipefail
+          source ${{ env.TEMPLATE_FILES_PATH }}/scripts/shell/yaml-functions.sh
+
+          echo "TemplatesFolder: $TemplatesFolder"
+          echo "PipelinesFolder: $PipelinesFolder"
+          echo "ProjectYamlRootFolder: $ProjectYamlRootFolder"
+          echo "ProgramType: $ProgramType"
+          echo "MergedEnvFile: $MergedEnvFile"
+          echo "MergedSecretFile: $MergedSecretFile"
+          echo "K8sLocation: $K8sLocation"
+          echo "CodeType: $CodeType"
+          echo "DeployEnvironment: $DeployEnvironment"
+
+          # 處理合併的環境變數
+          echo "cp $MergedEnvFile $ProjectYamlRootFolder/k8s/$K8sLocation/$DeployEnvironment/$CodeType-$DeployEnvironment-envVars.env"
+
+          if [ ! -d "$ProjectYamlRootFolder/k8s/$K8sLocation/$DeployEnvironment" ]; then
+              mkdir -p $ProjectYamlRootFolder/k8s/$K8sLocation/$DeployEnvironment
+          fi
+
+          if [ -f "$MergedEnvFile" ]; then
+            echo "Merged env vars file found: $MergedEnvFile"
+
+            cp $MergedEnvFile $ProjectYamlRootFolder/k8s/$K8sLocation/$DeployEnvironment/$CodeType-$DeployEnvironment-envVars.env
+
+            echo "sed -i 's/: /=/' $ProjectYamlRootFolder/k8s/$K8sLocation/$DeployEnvironment/$CodeType-$DeployEnvironment-envVars.env"
+
+            sed -i 's/: /=/' $ProjectYamlRootFolder/k8s/$K8sLocation/$DeployEnvironment/$CodeType-$DeployEnvironment-envVars.env
+
+            cat $ProjectYamlRootFolder/k8s/$K8sLocation/$DeployEnvironment/$CodeType-$DeployEnvironment-envVars.env
+          else
+            echo "No merged env vars file found at $MergedEnvFile, , skipping env processing."
+            exit 1
+          fi
+
+          # 處理Secrets檔案
+
+          if [ -f "$MergedSecretFile" ]; then
+            echo "Merged secrets file found: $MergedSecretFile"
+            echo "cp $MergedSecretFile $ProjectYamlRootFolder/k8s/$K8sLocation/$DeployEnvironment/$CodeType-$DeployEnvironment-envVars.secret"
+
+            cp $MergedSecretFile $ProjectYamlRootFolder/k8s/$K8sLocation/$DeployEnvironment/$CodeType-$DeployEnvironment-envVars.secret
+
+            echo "sed -i 's/: /=/' $ProjectYamlRootFolder/k8s/$K8sLocation/$DeployEnvironment/$CodeType-$DeployEnvironment-envVars.secret"
+
+            sed -i 's/: /=/' $ProjectYamlRootFolder/k8s/$K8sLocation/$DeployEnvironment/$CodeType-$DeployEnvironment-envVars.secret
+          else
+            echo "No merged secrets file found at $MergedSecretFile, skipping secret processing."
+          fi
+
+          if [ -f "$MergedSecretFile" && -f "$MergedEnvFile" ]; then
+            echo "Config跟Secret的合併檔案都存在"
+          else
+            echo "其中一個合併檔案不存在，處理 kustomization.yaml 檔案，移除相關 generator 設定"
+
+            update_kustomization_generator \
+            --yaml_file=${{ env.APP_PIPELINE_FILES_PATH }}/k8s/${{ inputs.k8s_location }}/${{ inputs.deploy_environment }}/kustomization.yaml \
+            --env_file=$ProjectYamlRootFolder/k8s/$K8sLocation/$DeployEnvironment/$CodeType-$DeployEnvironment-envVars.env \
+            --secret_file=$ProjectYamlRootFolder/k8s/$K8sLocation/$DeployEnvironment/$CodeType-$DeployEnvironment-envVars.secret
+          fi
+
+      - name: Update kustomization.yaml file by yq
+        shell: bash
+        run: |
+          set -euo pipefail
+          
+          echo "將kustomization.yaml中/images/[name='alpine']/newTag的latest更新為${{ steps.get_image_tag.outputs.ci_image_tag || inputs.image_tag }}"
+
+          yq ea -i '. | select(.images | .[0].newTag="${{ steps.get_image_tag.outputs.ci_image_tag || inputs.image_tag }}")' ${{ env.APP_PIPELINE_FILES_PATH }}/k8s/${{ inputs.k8s_location }}/${{ inputs.deploy_environment }}/kustomization.yaml
+
+          echo "==========更新完成後的kustomization.yaml內容=========="
+          cat ${{ env.APP_PIPELINE_FILES_PATH }}/k8s/${{ inputs.k8s_location }}/${{ inputs.deploy_environment }}/kustomization.yaml
+
+      - name: Kustomize build k8s yaml
+        id: kustomize_build
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl kustomize ${{ env.APP_PIPELINE_FILES_PATH }}/k8s/${{ inputs.k8s_location }}/${{ inputs.deploy_environment }}/ \
+          | yq ea 'with(select(.kind == "Secret"); (.data[]?, .stringData[]?) = "****")' - > ${{ env.PIPELINE_FILES_ARTIFACT_FOLDER_PATH }}/${{ inputs.app_name }}-k8s-${{ inputs.k8s_location }}-${{ inputs.deploy_environment }}.yaml
+        
+          cd ${{ env.PIPELINE_FILES_ARTIFACT_FOLDER_PATH }}
+          cat ${{ inputs.app_name }}-k8s-${{ inputs.k8s_location }}-${{ inputs.deploy_environment }}.yaml
+          
+          POD_NAME=`yq ea '[select(.kind == "Deployment").spec.template.metadata.labels.name] | .[0]' ${{ env.PIPELINE_FILES_ARTIFACT_FOLDER_PATH }}/${{ inputs.app_name }}-k8s-${{ inputs.k8s_location }}-${{ inputs.deploy_environment }}.yaml` && export POD_NAME
+
+          echo "export deployment name lable: $POD_NAME"
+          echo "set $POD_NAME as pipeline variable k8sNameLabel value"
+          echo "k8sNameLabel=$POD_NAME" >> $GITHUB_ENV
+          echo "k8sNameLabel=$POD_NAME" >> $GITHUB_OUTPUT
+
+          echo "set ${{ inputs.app_name }}-k8s-${{ inputs.k8s_location }}-${{ inputs.deploy_environment }}.yaml as pipeline variable k8sYamlFile"
+          echo "k8sYamlFile=${{ inputs.app_name }}-k8s-${{ inputs.k8s_location }}-${{ inputs.deploy_environment }}.yaml" >> $GITHUB_ENV
+
+      - name: Choose Approvers For Deploy Environment
+        if: ${{ inputs.deploy_environment == 'stg' || inputs.deploy_environment == 'prod' }}
+        env:
+          STG_APPROVERS: ${{ env.STG_APPROVERS }}
+          PROD_APPROVERS: ${{ env.PROD_APPROVERS }}
+          DEFAULT_APPROVERS: ${{ env.DEFAULT_APPROVERS }}
+          TARGET_ENVIRONMENT: ${{ inputs.deploy_environment }}
+        shell: bash
+        run: |
+          # 1. 根據環境選擇特定的 Approver 變數
+          if [[ "$TARGET_ENVIRONMENT" == "stg" ]]; then
+            CANDIDATE_APPROVERS="${STG_APPROVERS}"
+            echo "Checking STG_APPROVERS..."
+          elif [[ "$TARGET_ENVIRONMENT" == "prod" ]]; then
+            CANDIDATE_APPROVERS="${PROD_APPROVERS}"
+            echo "Checking PROD_APPROVERS..."
+          fi
+
+          # 2. 判斷是否有值，若無則使用預設值 (Fallback)
+          if [[ -n "$CANDIDATE_APPROVERS" ]]; then
+            FINAL_APPROVERS="$CANDIDATE_APPROVERS"
+            echo "Found specific approvers for $TARGET_ENVIRONMENT."
+          else
+            echo "Specific approvers not set or empty. Falling back to DEFAULT_APPROVERS..."
+            FINAL_APPROVERS="${DEFAULT_APPROVERS}"
+          fi
+
+          # 3. 最終檢查：如果連預設值都沒有，則報錯停止
+          if [[ -z "$FINAL_APPROVERS" ]]; then
+            echo "::error::Critical Error: No approvers found! Neither specific environment approvers nor DEFAULT_APPROVERS are set."
+            exit 1
+          fi
+
+          echo "Final Approvers selected: $FINAL_APPROVERS"
+
+          # 4. 輸出到 GITHUB_ENV 和 GITHUB_OUTPUT
+          echo "APPROVERS=$FINAL_APPROVERS" >> "$GITHUB_ENV"
+          echo "APPROVERS=$FINAL_APPROVERS" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Approval
+        if: ${{ inputs.deploy_environment == 'stg' || inputs.deploy_environment == 'prod' }}
+        uses: ./actions/deploy-approval@main
+        with:
+          deploy_environment: ${{ inputs.deploy_environment }}
+          approvers: ${{ env.APPROVERS }}
+          minimum_approvals: ${{ env.MINIMUM_APPROVALS }}
+          issue_title: "【Manual approval required】Use Run Id(Image tag): ${{ inputs.ci_workflow_run_id || inputs.image_tag }} as image tag to deploy ${{ inputs.deploy_environment }}"
+          token: ${{ github.TOKEN }}
+
+      - name: Check k8s namespace exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl config current-context
+          NAMESPACE_EXISTS=$(kubectl get ns ${{ inputs.k8s_namespace || env.K8S_NAMESPACE || 'default' }} --ignore-not-found -o json | jq .status.phase -r)
+          if [ "$NAMESPACE_EXISTS" == "Active"  ]; then
+            echo "Namespace ${{ inputs.k8s_namespace || env.K8S_NAMESPACE || 'default' }} already exists, Skipping creation."
+          else
+            echo "Namespace ${{ inputs.k8s_namespace || env.K8S_NAMESPACE || 'default' }} does not exist. Creating..."
+            kubectl create namespace ${{ inputs.k8s_namespace || env.K8S_NAMESPACE || 'default' }}
+          fi
+
+      
+      - name: Apply kustomize to Kubernetes
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Applying kustomize to cluster"
+          kubectl apply -k "${{ env.APP_PIPELINE_FILES_PATH }}/k8s/${{ inputs.k8s_location }}/${{ inputs.deploy_environment }}/" --namespace ${{ inputs.k8s_namespace || env.K8S_NAMESPACE || 'default' }}
+
+      - name: Upload k8s yaml artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: K8s_YAML
+          path: ${{ env.PIPELINE_FILES_ARTIFACT_FOLDER_PATH }}/${{ env.k8sYamlFile }}
+
+      - name: Kustomize build k8s yaml with secret for dr
+        id: kustomize_build_with_secret
+        # if: ${{ inputs.deploy_environment == 'prod' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ${{ runner.temp }}/yaml2gcs
+          kubectl kustomize ${{ env.APP_PIPELINE_FILES_PATH }}/k8s/${{ inputs.k8s_location }}/${{ inputs.deploy_environment }}/ \
+            -o ${{ runner.temp }}/yaml2gcs/${{ inputs.app_name }}-k8s-${{ inputs.k8s_location }}-${{ inputs.deploy_environment }}.yaml
+      
+      - name: Authenticate to Google Cloud
+        id: auth
+        # if: ${{ inputs.deploy_environment == 'prod' }}
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+
+      - name: Upload prod k8s yaml to gcs
+        id: upload_k8s_yaml_file_to_gcs
+        # if: ${{ inputs.deploy_environment == 'prod' }}
+        uses: 'google-github-actions/upload-cloud-storage@v3'
+        with:
+          path: '${{ runner.temp }}/yaml2gcs'
+          destination: '${{ env.GCP_BACKUP_GCS_BUCKET }}/kustomize-yaml/${{ inputs.deploy_environment }}'
+          parent: false
+          process_gcloudignore: false
+
+      - name: Wait for rollout
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEPLOYMENT_NAME=${{ env.k8sNameLabel }}
+          kubectl rollout status deployment "$DEPLOYMENT_NAME" -n ${{ inputs.k8s_namespace || env.K8S_NAMESPACE || 'default' }} --timeout=${{ inputs.wait_timeout_second }}s
+
+      # NOTE: pre/post deploy extensibility MUST be orchestrated by the caller workflow.
+      # Inline script-based pre/post execution has been intentionally removed.
+
+      # - name: Set outputs
+      #   id: set_outputs
+      #   shell: bash
+      #   run: |
+      #     echo "k8s_yaml_file=${{ steps.prepare_kustom.outputs.k8s_yaml_file }}" >> $GITHUB_OUTPUT
+      #     echo "k8s_name_label=${{ steps.extract_name.outputs.k8sNameLabel }}" >> $GITHUB_OUTPUT
+
+      - name: Post Deploy K8s Action
+        if: ${{ inputs.run_post_deploy_k8s_action == true }}
+        uses: ./.actions/post-deploy-k8s
+        with:
+          args_json: ${{ inputs.post_deploy_k8s_action_args }}
+          merged_config_json: ${{ inputs.merged_config_json }}

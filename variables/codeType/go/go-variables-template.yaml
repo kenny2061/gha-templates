@@ -1,0 +1,54 @@
+# Go Build Configuration Variables Template
+# Go 代碼類型的編譯相關變數設定
+
+# 基本編譯配置
+CODE_TYPE: 'go'                            # 代碼類型標識符
+GO_VERSION: '1.25'                         # Required: Go 版本
+GO_BUILD_FLAGS: '-v'                       # Go 編譯標誌
+
+# 編譯路徑與檔案
+BUILD_SOURCE_FILE: 'go.mod'                # 編譯檔案 (go.mod)
+GO_SRC_PATH: '.'                           # 源碼目錄路徑
+GO_BUILD_OUTPUT: 'build/app'               # 編譯輸出路徑
+GO_MAIN_PACKAGE: './cmd/main.go'           # Main 套件路徑
+
+# Go 編譯環境
+GOOS: 'linux'                              # 目標作業系統 (linux, windows, darwin)
+GOARCH: 'amd64'                            # 目標架構 (amd64, arm64, 386)
+CGO_ENABLED: '0'                           # 是否啟用 CGO (跨平台編譯時設為 0)
+
+# Go Modules 相關
+GO_MOD_DOWNLOAD: 'true'                    # 下載依賴
+GO_MOD_VERIFY: 'true'                      # 驗證 go.mod 完整性
+GO_MOD_TIDY: 'false'                       # 執行 go mod tidy
+
+# 測試相關
+# RUN_UNIT_TESTS: 'true'                     # 執行單位測試
+# RUN_BENCHMARK_TESTS: 'false'               # 執行效能測試
+# CODE_COVERAGE_THRESHOLD: '70'              # 代碼覆蓋率閾值 (%)
+# ENABLE_RACE_DETECTOR: 'true'               # 啟用競態條件檢測
+
+# Linting & 代碼品質
+# GOLANGCI_LINT_ENABLED: 'true'              # 啟用 golangci-lint
+# GOLANGCI_LINT_VERSION: 'latest'            # golangci-lint 版本
+# GOLANGCI_LINT_CONFIG: '.golangci.yml'      # golangci-lint 配置檔
+# GOLANGCI_LINT_DEADLINE: '5m'               # Lint 逾時時間
+
+# 靜態分析工具
+# ENABLE_GOVULNCHECK: 'true'                 # 啟用 Go 漏洞掃描
+# ENABLE_STATICCHECK: 'false'                # 啟用 staticcheck
+# ENABLE_GOSEC: 'false'                      # 啟用 gosec 安全掃描
+
+# Docker 映像相關
+GO_BASE_IMAGE: 'golang:1.25-alpine'        # Go SDK 基礎映像
+
+# 編譯最佳化
+ENABLE_LDFLAGS: 'false'                    # 啟用 ldflags 優化 (移除符號表、調試信息)
+LDFLAGS: ''                                # ldflags 內容
+ENABLE_STRIP: 'false'                      # 執行 strip 命令
+
+# 其他配置
+ENABLE_PROFILING: 'false'                  # 啟用 CPU/Memory Profiling
+ENABLE_TRACING: 'false'                    # 啟用追蹤
+ENABLE_DEBUG_OUTPUT: 'false'               # 啟用調試輸出
+ENABLE_VERBOSE_LOG: 'false'                # 啟用詳細日誌

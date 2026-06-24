@@ -1,0 +1,51 @@
+name: Deploy Approval Action
+
+inputs:
+  # Required Inputs
+  deploy_environment:
+    description: "Deploy target environment: test | stg | prod"
+    required: true
+    default: "stg"
+  approvers:
+    required: true
+    default: ""
+  token:
+    required: true
+    type: string
+    default: ''
+
+  # With default values
+  issue_title:
+    required: false
+    type: string
+    default: ""
+  issue_body:
+    required: false
+    type: string
+    default: ""
+  minimum_approvals:
+    required: false
+    default: 1
+  args_json:
+    description: "Arguments for action"
+    required: false
+    default: "{}"
+  merged_config_json:
+    description: "Merged configuration JSON from previous steps"
+    required: false
+    default: "{}"
+
+
+runs:
+  using: "composite"
+  steps:
+    - name: Wait for approval
+      uses: trstringer/manual-approval@v1
+      with:
+        secret: ${{ inputs.token }}
+        approvers: ${{ inputs.approvers }}
+        minimum-approvals: ${{ inputs.minimum_approvals }}
+        additional-approved-words: 'ok'
+        additional-denied-words: 'reject'
+        issue-title: ${{ inputs.issue_title || format('Deploy to {0} approval.', inputs.deploy_environment) }}
+        issue-body: ${{ inputs.issue_body }}

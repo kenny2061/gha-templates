@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+  - pairs:
+      codeType: python
+      environment: prod
+
+resources:
+  - ../../base
+  # - deployment-static.yaml
+  # - hpa.yaml
+
+replicas:
+  - name: app-template
+    count: 2
+
+patches:
+  - path: cpu-limit.yaml
+  - path: ram-limit.yaml

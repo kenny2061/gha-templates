@@ -1,0 +1,74 @@
+# Pipeline Global Variables Template
+# 全局管道變數設定模板
+
+# 資源與倉庫配置
+TEMPLATE_RESOURCE_NAME: 'templates'       # 樣板資源名稱
+PIPELINE_RESOURCE_NAME: 'Pipelines'       # Pipeline 資源名稱
+SOURCE_RESOURCE_NAME: 'sources'           # 源碼資源名稱
+SECRETS_RESOURCE_NAME: 'secrets'          # 機敏資訊資源名稱
+
+TEMPLATE_REPO_NAME: 'gha-templates'         # 樣板倉庫名稱
+PIPELINE_REPO_NAME: 'Pipelines'       # Pipeline 倉庫名稱
+SECRETS_REPO_NAME: 'Secrets'          # 機敏資訊倉庫名稱
+
+# GitHub 組織與專案配置
+GITHUB_ORG_NAME: 'my-github-org'                       # Required: GitHub 組織名稱
+WORKLOAD_IDENTITY_PROVIDER: 'projects/my-gcp-project-number/locations/global/workloadIdentityPools/github/providers/github-oidc'
+
+# 檔案位置配置
+SOURCE_RESOURCE_FOLDER: 'sources'         # 源碼資源目錄
+PIPELINES_RESOURCE_FOLDER: 'pipelines'    # Pipeline 資源目錄
+TEMPLATE_RESOURCE_FOLDER: 'templates'     # 樣板資源目錄
+SECRETS_RESOURCE_FOLDER: 'secrets'        # 機敏資訊資源目錄
+SOURCE_PATH: 'src'                        # 源碼路徑
+BUILD_OUTPUT_FOLDER: 'build-output'       # 編譯輸出資料夾
+ZIP_FOLDER: 'zip-output'                  # 壓縮檔案資料夾
+PIPELINE_FILES_ARTIFACT_FOLDER: 'pipeline-files'  # Pipeline 檔案成品資料夾
+
+# 成品與檔案配置
+PIPELINE_FILES_ARTIFACT_NAME: 'PipelineFiles'   # Pipeline 檔案成品名稱
+BUILD_OUTPUT_ARTIFACT_NAME: 'OutputFiles'       # 編譯輸出成品名稱
+ZIP_FILE_NAME: 'buildResult.zip'                # 壓縮檔案名稱
+GIT_COMMIT_SHA_FILE_NAME: 'gitCommitSHA.txt'    # Git Commit SHA 檔案名稱
+
+# Git 配置
+# GIT_USER_EMAIL: ''                        # Required: Git 使用者郵箱
+# GIT_USER_NAME: ''                         # Required: Git 使用者名稱
+# GIT_COMMIT_MESSAGE: ''                    # Git Commit 訊息
+
+# 容器與 K8s 配置
+IMG_REGISTRY_SERVICE_NAME_PREFIX: ''      # 映像庫服務名稱前綴
+LOWER_IMG_REGISTRY_SERVICE_PREFIX: ''     # 小寫映像庫服務名稱前綴
+K8S_NAMESPACE: ''                         # Kubernetes 命名空間
+BUILD_IMAGE_BASE_FOLDER: 'BuildImage'       # 編譯映像基礎路徑
+DOCKER_LOGIN: 'true'
+DOCKER_LOGIN_USERNAME: 'my-docker-username'
+DOCKER_LOGIN_TOKEN: 'my-docker-login-pat'
+
+# 應用程式配置
+PROGRAM_TYPE: 'web'                       # 程式類型 (web, api, app, etc.)
+APP_NAME: ''                              # 應用程式名稱
+HYPHEN_APP_NAME: ''                       # 連字號應用程式名稱 (用於 DNS)
+
+# 編譯與部署配置
+BUILD_ID: ''                              # 編譯 ID (由 GitHub 自動設定)
+EXECUTION_DATE: ''                        # 執行日期 (格式: YYYYMMDD)
+WAIT_TIMEOUT_SECOND: '300'                # 等待逾時時間 (秒)
+
+# 工作流程控制
+ENABLE_ARTIFACT_UPLOAD: 'true'            # 啟用成品上傳
+ARTIFACT_RETENTION_DAYS: '30'             # 成品保留天數
+ENABLE_CLEANUP_AFTER_BUILD: 'true'        # 編譯後清理
+CLEANUP_DAYS: '7'                         # 清理保留天數
+
+# 日誌與調試
+ENABLE_DEBUG_LOGGING: 'false'             # 啟用調試日誌
+LOG_LEVEL: 'INFO'                         # 日誌級別 (DEBUG, INFO, WARN, ERROR)
+
+# 其他配置
+NOTIFY_ON_FAILURE: 'true'                 # 失敗時通知
+NOTIFY_ON_SUCCESS: 'false'                # 成功時通知
+ALLOW_CONCURRENT_BUILDS: 'false'          # 允許並行編譯
+
+MINIMUM_APPROVALS: 1
+DEFAULT_APPROVERS: kenny2061

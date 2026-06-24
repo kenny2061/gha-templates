@@ -1,0 +1,74 @@
+# Azure Cloud Services Configuration Variables Template
+# Microsoft Azure 相關的變數設定
+
+# Azure 帳戶配置
+AZURE_SUBSCRIPTION_ID: ''                  # Required: Azure 訂閱 ID
+AZURE_TENANT_ID: ''                        # Required: Azure 租戶 ID (Directory ID)
+AZURE_RESOURCE_GROUP: ''                   # Required: Azure 資源群組名稱
+AZURE_LOCATION: 'eastasia'                 # Required: Azure 區域
+
+# Container Registry (ACR) 相關
+IMG_REGISTRY_SERVICE_NAME: ''              # Required: Azure Container Registry 服務名稱
+IMG_REPOSITORY: ''                         # Required: ACR 倉庫路徑 (格式: acr-name.azurecr.io/repo-name)
+IMG_REGISTRY: ''                           # ACR Registry URI (xxx.azurecr.io)
+IMG_REGISTRY_NAME: ''                      # ACR 名稱 (不含 .azurecr.io)
+IMG_REGISTRY_URL: ''                       # ACR Registry 完整 URL
+
+# ACR (Azure Container Registry) 配置
+ACR_REGISTRY_NAME: ''                      # ACR 名稱
+ACR_ADMIN_ENABLED: 'true'                  # 啟用 ACR 管理員帳戶
+ACR_ENABLE_ANONYMOUS_PULL: 'false'         # 啟用匿名拉取
+ACR_SKU: 'Standard'                        # ACR SKU (Basic, Standard, Premium)
+
+# App Service 部署配置 (如果使用 App Service)
+AZURE_APP_SERVICE_NAME: ''                 # App Service 名稱
+AZURE_APP_SERVICE_PLAN: ''                 # App Service 計畫名稱
+AZURE_DEPLOYMENT_SLOT: 'production'        # 部署槽位 (production, staging 等)
+
+# Container Instances 配置 (如果使用 ACI)
+AZURE_CONTAINER_GROUP_NAME: ''             # 容器群組名稱
+AZURE_CONTAINER_CPU: '1'                   # CPU 核心數
+AZURE_CONTAINER_MEMORY: '1.5'              # 記憶體 (GB)
+
+# AKS (Azure Kubernetes Service) 配置 (如果使用 AKS)
+AZURE_AKS_CLUSTER_NAME: ''                 # AKS 叢集名稱
+AZURE_AKS_RESOURCE_GROUP: ''               # AKS 資源群組
+AZURE_KUBERNETES_NAMESPACE: 'default'      # Kubernetes 命名空間
+
+# App Configuration 相關
+AZURE_APP_CONFIG_NAME: ''                  # App Configuration 名稱
+AZURE_KEY_VAULT_NAME: ''                   # Key Vault 名稱
+
+# 虛擬機器相關 (如果使用 VM 部署)
+AZURE_VM_NAME: ''                          # 虛擬機器名稱
+AZURE_VM_IMAGE_ID: ''                      # VM 映像 ID
+
+# 網路配置
+AZURE_VNET_NAME: ''                        # 虛擬網路名稱
+AZURE_SUBNET_NAME: ''                      # 子網路名稱
+AZURE_NSG_NAME: ''                         # 網路安全群組名稱
+
+# IAM & 存取控制
+AZURE_SERVICE_PRINCIPAL_ID: ''             # 服務主體 ID (Application ID)
+AZURE_MANAGED_IDENTITY_ID: ''              # 受控識別 ID
+AZURE_ROLE: 'Contributor'                  # Azure 角色 (Contributor, Reader, Owner 等)
+
+# 儲存體相關
+AZURE_STORAGE_ACCOUNT: ''                  # 儲存體帳戶名稱
+AZURE_STORAGE_CONTAINER: ''                # 儲存體容器名稱
+AZURE_STORAGE_KEY: ''                      # 儲存體帳戶金鑰
+
+# 監控與診斷
+AZURE_LOG_ANALYTICS_WORKSPACE: ''          # Log Analytics 工作區名稱
+AZURE_APPLICATION_INSIGHTS_KEY: ''         # Application Insights 檢測金鑰
+ENABLE_DIAGNOSTICS: 'true'                 # 啟用診斷
+
+# 其他配置
+AZURE_TAGS: ''                             # Azure 標籤 (格式: key1=value1,key2=value2)
+ENABLE_AUTO_SCALING: 'false'               # 啟用自動調整
+AUTO_SCALING_MIN_COUNT: '1'                # 自動調整最小實例數
+AUTO_SCALING_MAX_COUNT: '5'                # 自動調整最大實例數
+
+# GitHub Federated Identity 配置 (用於無密鑰認證)
+USE_GITHUB_FEDERATED_ID: 'true'            # 使用 GitHub 聯合身份進行認證
+AZURE_FEDERATED_CLIENT_ID: ''              # 聯合身份 Client ID

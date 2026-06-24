@@ -1,0 +1,148 @@
+name: Load Variables
+description: 'Load, merge and export variables from YAML files and Inputs'
+
+inputs:
+  folder:
+    required: true
+    type: string
+    description: 'Folder containing variable files'
+  yaml_files:
+    required: false
+    type: string
+    default: 'variables.yaml'
+    description: 'Comma-separated list of YAML files to load'
+  exclude_files:
+    required: false
+    type: string
+    default: ''
+    description: 'Comma-separated list of filenames/patterns to exclude (e.g. secret.yaml, test-*.yaml)'
+  override_inputs:
+    description: 'JSON string of caller inputs to override config'
+    required: false
+    type: string
+    default: '{}' 
+  preload_vars_json:
+    required: false
+    type: string
+    default: '{}' # 預設給空 JSON，方便腳本處理
+    description: 'Preload variables as JSON string (from previous steps)'
+
+outputs:
+  loaded_vars:
+    description: 'Final merged configuration JSON'
+    value: ${{ steps.load-vars.outputs.loaded_vars }}
+  
+runs:
+  using: "composite"
+  steps:
+    - name: Load and Merge Variables
+      id: load-vars
+      shell: bash
+      env:
+        INPUT_PRELOAD_JSON: ${{ inputs.preload_vars_json }}
+        INPUT_OVERRIDE_JSON: ${{ inputs.override_inputs }}
+        INPUT_FOLDER: ${{ inputs.folder }}
+        INPUT_YAML_FILES: ${{ inputs.yaml_files }}
+        INPUT_EXCLUDE_FILES: ${{ inputs.exclude_files }}
+      run: |
+        # 初始設定應繼承 preload_vars_json，而不是歸零
+        # 判斷是否為空 (Bash 變數記得加雙引號)
+        if [ -z "$INPUT_PRELOAD_JSON" ] || [ "$INPUT_PRELOAD_JSON" == "{}" ]; then
+          MERGED_CONFIG="{}"
+        else
+          MERGED_CONFIG="$INPUT_PRELOAD_JSON"
+        fi
+
+        echo "Initial Config Length: ${#MERGED_CONFIG} chars" # 避免印出太長，改印長度
+        echo "Loading variables from folder: $INPUT_FOLDER"
+        
+        # ✅ 開啟必要的 Shell 選項
+        shopt -s nullglob  # 若無匹配檔案，不回傳 pattern 字串
+        shopt -s globstar  # ✨ 關鍵：開啟 ** 遞迴匹配支援
+
+        # 先依據逗號分割輸入字串
+        IFS=',' read -ra PATTERNS <<< "$INPUT_YAML_FILES"
+        
+        # ✨ 解析要排除的檔案 Pattern (存入陣列)
+        IFS=',' read -ra EXCLUDES <<< "$INPUT_EXCLUDE_FILES"
+
+
+        for pattern in "${PATTERNS[@]}"; do
+          # 移除可能多餘的空白
+          pattern=$(echo "$pattern" | xargs)
+          
+          # 組合完整的路徑 Pattern (例如 templates/variables/*.yaml)
+          # 注意：這裡還是在組字串
+          FULL_PATTERN="$INPUT_FOLDER/$pattern"
+          
+          # 讓 Shell 進行萬用字元擴展
+          # 注意：這裡的 $FULL_PATTERN 不要加雙引號，這樣 * 才會生效
+          for FILE_PATH in $FULL_PATTERN; do
+          
+            if [ -f "$FILE_PATH" ]; then
+              # ✨ 排除邏輯開始
+              FILE_NAME=$(basename "$FILE_PATH") # 只取檔名，不含路徑
+              SKIP_FILE=false
+
+              for exclude_pat in "${EXCLUDES[@]}"; do
+                # 去除空白
+                exclude_pat=$(echo "$exclude_pat" | xargs)
+                
+                # 如果排除字串是空的，直接跳過檢查
+                if [ -z "$exclude_pat" ]; then continue; fi
+
+                # 使用 Bash 內建的比對功能 (支援萬用字元)
+                # 例如: [[ "test-config.yaml" == "test-*.yaml" ]] 會回傳 true
+                if [[ "$FILE_NAME" == $exclude_pat ]]; then
+                  echo "🚫 Skipping excluded file: $FILE_NAME (matched pattern: $exclude_pat)"
+                  SKIP_FILE=true
+                  break
+                fi
+              done
+
+              # 如果被標記為跳過，則進入下一個檔案迴圈
+              if [ "$SKIP_FILE" == "true" ]; then
+                continue
+              fi
+              # ✨ 排除邏輯結束
+
+              echo "Merging file: $FILE_PATH"
+              
+              # ... (原本的 yq / jq 邏輯保持不變) ...
+              FILE_JSON=$(yq -o=json "." "$FILE_PATH")
+              MERGED_CONFIG=$(echo "$MERGED_CONFIG" "$FILE_JSON" | jq -s '.[0] * .[1]')
+              
+            else
+              echo "Warning: $FILE_PATH is not a valid file or not found."
+            fi
+          done
+        done
+        
+        # 關閉選項 (好習慣)
+        shopt -u nullglob
+        shopt -u globstar
+
+        echo "Processing override inputs..."
+        RAW_INPUTS="$INPUT_OVERRIDE_JSON"
+        
+        # 處理 Override Inputs (轉大寫 + 去空值)
+        PROCESSED_INPUTS=$(echo "$RAW_INPUTS" | jq -c '
+          with_entries(.key |= ascii_upcase) | 
+          del(.[] | select(. == ""))
+        ')
+        
+        # 最終合併：目前累積的設定 * Inputs設定
+        FINAL_CONFIG=$(echo "$MERGED_CONFIG" "$PROCESSED_INPUTS" | jq -s '.[0] * .[1]')
+        
+        echo "Final Merged Configuration: $FINAL_CONFIG"
+
+        # 最後統一將 FINAL_CONFIG 寫入 GITHUB_ENV
+        # 這樣保證 env.* 和 outputs.loaded_vars 完全一致
+        # 使用 jq -r to_entries 將 JSON 轉回 KEY=VALUE 格式
+        # echo "$FINAL_CONFIG" | jq -r 'to_entries|map("\(.key)=\(.value|tostring)")|.[]' >> $GITHUB_ENV
+
+        # 設定 Output
+        #echo "loaded_vars=$FINAL_CONFIG" >> "$GITHUB_OUTPUT"
+
+        COMPACT_JSON=$(echo "$FINAL_CONFIG" | jq -c '.')
+        echo "loaded_vars=$COMPACT_JSON" >> "$GITHUB_OUTPUT"

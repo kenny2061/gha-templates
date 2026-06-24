@@ -1,0 +1,83 @@
+# React Build Configuration Variables Template
+# React 代碼類型的編譯相關變數設定
+
+# 基本編譯配置
+CODE_TYPE: 'react'                         # 代碼類型標識符
+NODE_VERSION: '24.x'                       # Required: Node.js 版本
+NPM_VERSION: '10.x'                         # NPM 版本 (可選，省略則使用 Node 默認)
+
+# 編譯路徑與檔案
+BUILD_SOURCE_FILE: 'package.json'          # 編譯檔案 (package.json)
+SRC_PATH: 'src'                            # 源碼目錄路徑
+BUILD_OUTPUT_DIR: 'build'                  # 編譯輸出目錄
+PUBLIC_URL: '/'                            # 公開 URL 路徑
+
+# NPM 相關
+NPM_REGISTRY: 'https://registry.npmjs.org' # NPM Registry URL
+NPM_CI: 'true'                             # 使用 npm ci 而非 npm install (推薦用於 CI/CD)
+NPM_INSTALL_FLAGS: '--prefer-offline'      # NPM install 額外標誌
+ENABLE_NPM_AUDIT: 'true'                   # 執行 npm audit 檢查
+
+# Yarn 相關 (如果使用 Yarn)
+USE_YARN: 'false'                          # 使用 Yarn 替代 NPM
+YARN_VERSION: 'latest'                     # Yarn 版本
+
+# 編譯配置
+BUILD_SCRIPT: 'build'                      # 編譯腳本名稱 (npm run build 執行)
+BUILD_CONFIGURATION: 'production'          # 編譯配置 (development, production)
+GENERATE_SOURCEMAP: 'true'                 # 生成 Source Map
+INLINE_RUNTIME_CHUNK: 'true'               # 內聯 Runtime Chunk
+
+# 測試相關
+RUN_UNIT_TESTS: 'true'                     # 執行單位測試
+TEST_SCRIPT: 'test'                        # 測試腳本名稱 (npm run test)
+RUN_E2E_TESTS: 'false'                     # 執行端對端測試
+E2E_TEST_SCRIPT: 'test:e2e'                # E2E 測試腳本名稱
+CODE_COVERAGE_THRESHOLD: '60'              # 代碼覆蓋率閾值 (%)
+
+# Linting & 代碼品質
+ENABLE_ESLINT: 'true'                      # 啟用 ESLint
+ESLINT_CONFIG: '.eslintrc.js'              # ESLint 配置檔
+ESLINT_IGNORE_FILE: '.eslintignore'        # ESLint 忽略檔
+
+# 代碼風格檢查
+ENABLE_PRETTIER: 'false'                   # 啟用 Prettier
+PRETTIER_CONFIG: '.prettierrc'             # Prettier 配置檔
+
+# 靜態分析
+ENABLE_TYPESCRIPT_CHECK: 'false'           # 啟用 TypeScript 檢查
+TYPESCRIPT_COMPILER_OPTIONS: ''            # TypeScript 編譯選項
+
+# 安全掃描
+ENABLE_DEPENDENCY_CHECK: 'false'           # 啟用依賴檢查 (npm audit)
+ENABLE_SNYK_SCAN: 'false'                  # 啟用 Snyk 安全掃描
+ENABLE_SONARQUBE: 'false'                  # 啟用 SonarQube 掃描
+
+# Docker 映像相關
+NODE_BASE_IMAGE: 'node:24-alpine'          # Node.js 基礎映像
+NGINX_BASE_IMAGE: 'nginx:alpine'           # Nginx 基礎映像 (如果使用)
+BUILD_IMAGE: 'true'                        # 編譯後建立 Docker 映像
+DOCKERFILE_PATH: 'Dockerfile'              # Dockerfile 路徑
+USE_MULTI_STAGE_BUILD: 'true'              # 使用多階段構建 (Node + Nginx)
+
+# 程式包與發佈
+PUBLISH_ARTIFACT: 'true'                   # 發佈成品
+ARTIFACT_NAME: 'react-build'               # 成品名稱
+ARTIFACT_RETENTION_DAYS: '30'              # 成品保留天數
+COMPRESS_ARTIFACT: 'true'                  # 壓縮成品 (ZIP)
+
+# 最佳化設定
+ENABLE_BUNDLE_ANALYSIS: 'false'            # 啟用套件分析
+BUNDLE_SIZE_LIMIT: '500kb'                 # 套件大小限制
+ENABLE_GZIP_COMPRESSION: 'true'            # 啟用 Gzip 壓縮
+ENABLE_BROTLI_COMPRESSION: 'false'         # 啟用 Brotli 壓縮
+
+# 環境變數
+REACT_APP_API_URL: ''                      # React App API URL
+REACT_APP_ENVIRONMENT: 'development'       # React App 環境
+REACT_APP_VERSION: ''                      # React App 版本
+
+# 其他配置
+ENABLE_SERVICE_WORKER: 'false'             # 啟用 Service Worker
+ENABLE_ANALYTICS: 'false'                  # 啟用分析
+ENABLE_DEBUG_OUTPUT: 'false'               # 啟用調試輸出

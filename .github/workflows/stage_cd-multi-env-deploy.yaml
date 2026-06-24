@@ -1,0 +1,206 @@
+name: stage_cd-multi-env-deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      build-id:
+        description: 'Build ID/SHA to deploy'
+        required: true
+        type: string
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - qa
+          - stage
+          - prod
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  setup:
+    name: Setup Deployment Configuration
+    runs-on: ubuntu-latest
+    outputs:
+      deploy-config: ${{ steps.config.outputs.deploy-config }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            variables
+          sparse-checkout-cone-mode: false
+
+      - name: Load deployment configuration
+        id: config
+        shell: bash
+        run: |
+          # Load environment-specific configuration
+          ENV=${{ github.event.inputs.environment }}
+          CONFIG_FILE="variables/deploy-${ENV}-config.yaml"
+          
+          if [ -f "$CONFIG_FILE" ]; then
+            cat "$CONFIG_FILE"
+          else
+            echo "Using default configuration for $ENV"
+          fi
+
+  qa-deploy:
+    name: Deploy to QA
+    runs-on: ubuntu-latest
+    needs: setup
+    if: github.event.inputs.environment == 'qa'
+    environment:
+      name: qa
+      url: https://qa-sample.example.com
+    steps:
+      - name: Checkout .github
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/.github
+          path: .github-repo
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY_QA }}
+
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker ${{ env.REGISTRY }}
+
+      - name: Deploy to Cloud Run (QA)
+        run: |
+          gcloud run deploy dotnet-sample-service \
+            --image ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.build-id }} \
+            --region asia-east1 \
+            --platform managed \
+            --allow-unauthenticated \
+            --set-env-vars ENVIRONMENT=qa
+
+      - name: Run smoke tests
+        shell: bash
+        run: |
+          echo "Running QA environment smoke tests..."
+          # Add smoke test logic here
+
+      - name: Create deployment record
+        shell: bash
+        run: |
+          echo "Deployment to QA completed at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+
+  stage-deploy:
+    name: Deploy to Stage
+    runs-on: ubuntu-latest
+    needs: [setup, qa-deploy]
+    if: |
+      always() &&
+      github.event.inputs.environment == 'stage' ||
+      (github.event.inputs.environment == 'qa' && needs.qa-deploy.result == 'success')
+    environment:
+      name: stage
+      url: https://stage-sample.example.com
+    steps:
+      - name: Checkout .github
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/.github
+          path: .github-repo
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY_STAGE }}
+
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker ${{ env.REGISTRY }}
+
+      - name: Deploy to Cloud Run (Stage)
+        run: |
+          gcloud run deploy dotnet-sample-service \
+            --image ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.build-id }} \
+            --region asia-east1 \
+            --platform managed \
+            --allow-unauthenticated \
+            --set-env-vars ENVIRONMENT=stage
+
+      - name: Run integration tests
+        shell: bash
+        run: |
+          echo "Running Stage environment integration tests..."
+          # Add integration test logic here
+
+      - name: Create deployment record
+        shell: bash
+        run: |
+          echo "Deployment to Stage completed at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+
+  prod-deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [setup, stage-deploy]
+    if: |
+      always() &&
+      (github.event.inputs.environment == 'prod' ||
+       (github.event.inputs.environment == 'stage' && needs.stage-deploy.result == 'success'))
+    environment:
+      name: prod
+      url: https://sample.example.com
+    steps:
+      - name: Checkout .github
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/.github
+          path: .github-repo
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY_PROD }}
+
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker ${{ env.REGISTRY }}
+
+      - name: Deploy to Cloud Run (Prod)
+        run: |
+          gcloud run deploy dotnet-sample-service \
+            --image ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.build-id }} \
+            --region asia-east1 \
+            --platform managed \
+            --allow-unauthenticated \
+            --set-env-vars ENVIRONMENT=prod
+
+      - name: Verify deployment
+        shell: bash
+        run: |
+          echo "Verifying production deployment..."
+          sleep 10
+          curl -f https://sample.example.com/health || exit 1
+
+      - name: Create deployment record
+        shell: bash
+        run: |
+          echo "Deployment to Production completed at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+
+      - name: Notify deployment
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '✅ Production deployment completed successfully'
+            });

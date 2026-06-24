@@ -1,0 +1,257 @@
+name: 合併環境變數設定
+
+inputs:
+  app_name: # 應用程式的名稱，通常就是儲存庫名稱
+    description: 'The name of the application repository (e.g., ComplexDotNetSystem)'
+    required: true
+    type: string
+  program_type:
+    description: 'The type of application (e.g., web, api, app, prog)'
+    required: true
+    type: string
+  deploy_environment:
+    description: '部署環境 (dev | stage | prod)'
+    required: true
+    type: string
+  deploy_type:
+    description: '部署類型 (serverless | k8s)'
+    required: true
+    type: string
+    default: 'k8s'
+  deploy_target:
+    description: '部署目標 (local | gcp | cloudrun)'
+    required: true
+    type: string
+    default: 'local'
+  code_type:
+    description: '程式類型 (go | nodejs | python | java)'
+    required: true
+    type: string
+
+outputs:
+  merged_all_envVars_file:
+    description: 'Merged environment variables file including secrets'
+    value: ${{ steps.merge_env_vars_and_output.outputs.merged_all_envVars_file }}
+  merged_no_secrets_envVars_file:
+    description: 'Merged environment variables file excluding secrets'
+    value: ${{ steps.merge_env_vars_and_output.outputs.merged_no_secrets_envVars_file }}
+  merged_and_replace_envVars_file:
+    description: 'Merged environment variables file with secrets values replaced ***'
+    value: ${{ steps.merge_env_vars_and_output.outputs.merged_and_replace_envVars_file }}
+  merged_secrets_envVars_file:
+    description: 'Merged secrets environment variables file'
+    value: ${{ steps.merge_env_vars_and_output.outputs.merged_secrets_envVars_file }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install YQ and JQ
+      shell: bash
+      run: |
+        # 1. 安裝 jq (apt 的 jq 沒問題)
+        sudo apt-get update && sudo apt-get install -y jq wget
+
+        # 2. 安裝 Go 版的 yq (mikefarah/yq)
+        # 注意：不要用 apt-get install yq，那會裝成 Python 版
+        sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+        
+        # 3. 給予執行權限
+        sudo chmod a+x /usr/local/bin/yq
+
+        # 4. 驗證版本 (確認是否看到 mikefarah 字樣)
+        echo "yq version installed:"
+        yq --version
+
+    - name: 合併範本的環境變數設定
+      shell: bash
+      run: |
+        source ${{ env.TEMPLATE_FILES_PATH }}/scripts/shell/yaml-functions.sh
+
+        #==========處理範本中的環境變數檔==========
+        if [[ -d "${{ env.TEMPLATE_FILES_PATH }}/variables/codeType" ]]; then
+            echo "範本目錄variables中找到codeType目錄，處理相關環境變數檔"
+
+            ls ${{ env.TEMPLATE_FILES_PATH }}/variables/codeType -alh
+
+            if [[ -d "${{ env.TEMPLATE_FILES_PATH }}/variables/codeType/generic" ]]; then
+                echo "codeType目錄下找到generic目錄，處理通用(generic-)環境變數檔"
+                
+                merge_files \
+                ${{ env.TEMPLATE_FILES_PATH }}/variables/codeType/generic/generic-coverAll-envVars.yml \
+                ${{ env.TEMPLATE_FILES_PATH }}/variables/codeType/generic/generic-${{ inputs.deploy_environment }}-envVars.yml \
+                --output ${{ runner.temp }}/template_envs_merge.yml --ignoreFileNotExist
+
+            fi
+
+            if [[ -d "${{ env.TEMPLATE_FILES_PATH }}/variables/codeType/${{ inputs.code_type }}" ]]; then
+                echo "codeType目錄下找到${{ inputs.code_type }}目錄，處理程式語言(${{ inputs.code_type }}-)相關的環境變數檔"
+
+                # 避免有目錄沒有檔案而失敗
+                if [[ -f ${{ env.TEMPLATE_FILES_PATH }}/variables/codeType/${{ inputs.code_type }}/${{ inputs.code_type }}-coverAll-envVars.yml || \
+                      -f ${{ env.TEMPLATE_FILES_PATH }}/variables/codeType/${{ inputs.code_type }}/${{ inputs.code_type }}-${{ inputs.deploy_environment }}-envVars.yml ]]; then
+
+                  merge_files \
+                  ${{ runner.temp }}/template_envs_merge.yml \
+                  ${{ env.TEMPLATE_FILES_PATH }}/variables/codeType/${{ inputs.code_type }}/${{ inputs.code_type }}-coverAll-envVars.yml \
+                  ${{ env.TEMPLATE_FILES_PATH }}/variables/codeType/${{ inputs.code_type }}/${{ inputs.code_type }}-${{ inputs.deploy_environment }}-envVars.yml \
+                  --output ${{ runner.temp }}/template_envs_merge.yml --ignoreFileNotExist
+
+                fi
+
+            fi
+            
+            echo ""
+            if [[ -f "${{ runner.temp }}/template_envs_merge.yml" ]]; then
+                echo "範本中的環境變數設定如下："
+                cat ${{ runner.temp }}/template_envs_merge.yml
+            fi
+            echo ""
+        fi
+
+    - name: 合併Pipeline Repo中「共用」的環境變數設定
+      shell: bash
+      run: |
+        source ${{ env.TEMPLATE_FILES_PATH }}/scripts/shell/yaml-functions.sh
+
+        #==========處理Pipelines中的環境變數檔==========
+        if [ -d "${{ env.PIPELINE_FILES_PATH }}/variables" ]; then
+            echo "Pipeline目錄中找到variables目錄，處理相關環境變數檔"
+
+            ls ${{ env.PIPELINE_FILES_PATH }}/variables -alh
+
+            # 避免有目錄沒有檔案而失敗
+            if [[ -f ${{ env.PIPELINE_FILES_PATH }}/variables/shared-${{ inputs.deploy_environment }}-envVars.yml || \
+                  -f ${{ env.PIPELINE_FILES_PATH }}/variables/${{ inputs.deploy_type }}/${{ inputs.deploy_target }}/shared-${{ inputs.deploy_environment }}-envVars.yml ]]; then
+              
+              merge_files \
+              ${{ env.PIPELINE_FILES_PATH }}/variables/shared-${{ inputs.deploy_environment }}-envVars.yml \
+              ${{ env.PIPELINE_FILES_PATH }}/variables/${{ inputs.deploy_type }}/${{ inputs.deploy_target }}/shared-${{ inputs.deploy_environment }}-envVars.yml \
+              --output ${{ runner.temp }}/project_envs_merge.yml --ignoreFileNotExist
+              
+            fi
+
+            echo ""
+
+            if [[ -f "${{ runner.temp }}/project_envs_merge.yml" ]]; then
+                echo "Pipeline中共用的環境變數設定如下："
+                cat ${{ runner.temp }}/project_envs_merge.yml
+            fi
+            echo ""
+        fi
+
+    - name: 合併Pipeline Repo中「系統」的環境變數設定
+      shell: bash
+      run: |
+        source ${{ env.TEMPLATE_FILES_PATH }}/scripts/shell/yaml-functions.sh
+
+        #==========處理系統(專案)中的環境變數檔==========
+        if [[ -d "${{ env.APP_PIPELINE_FILES_PATH }}/variables" ]]; then
+            echo "Pipeline目錄中找到${{ inputs.app_name }}/${{ inputs.program_type }}/variables目錄，處理相關環境變數檔"
+
+            ls ${{ env.APP_PIPELINE_FILES_PATH }}/variables -alh
+
+            # 避免有目錄沒有檔案而失敗
+            if [[ -f ${{ env.APP_PIPELINE_FILES_PATH }}/variables/${{ inputs.program_type }}-coverAll-envVars.yml || \
+                  -f ${{ env.APP_PIPELINE_FILES_PATH }}/variables/${{ inputs.program_type }}-${{ inputs.deploy_environment }}-envVars.yml || \
+                  -f ${{ env.APP_PIPELINE_FILES_PATH }}/variables/${{ inputs.deploy_type }}/${{ inputs.deploy_target }}/${{ inputs.program_type }}-${{ inputs.deploy_environment }}-envVars.yml ]]; then
+
+              merge_files \
+              ${{ env.APP_PIPELINE_FILES_PATH }}/variables/${{ inputs.program_type }}-coverAll-envVars.yml \
+              ${{ env.APP_PIPELINE_FILES_PATH }}/variables/${{ inputs.program_type }}-${{ inputs.deploy_environment }}-envVars.yml \
+              ${{ env.APP_PIPELINE_FILES_PATH }}/variables/${{ inputs.deploy_type }}/${{ inputs.deploy_target }}/${{ inputs.program_type }}-${{ inputs.deploy_environment }}-envVars.yml \
+              --output ${{ runner.temp }}/program_envs_merge.yml --ignoreFileNotExist
+
+            fi
+
+            echo ""
+
+            if [[ -f "${{ runner.temp }}/program_envs_merge.yml" ]]; then
+                echo "系統的環境變數設定如下："
+                cat ${{ runner.temp }}/program_envs_merge.yml
+            fi
+            echo ""
+        fi
+
+    - name: 合併機敏設定環境變數檔
+      id: merge_env_vars_and_output
+      shell: bash
+      run: |
+        source ${{ env.TEMPLATE_FILES_PATH }}/scripts/shell/yaml-functions.sh
+
+
+        #==========處理機敏設定中的環境變數檔==========
+        if [ -d "${{ env.SECRETS_FILES_PATH }}" ]; then
+            echo "處理機敏設定環境變數檔"
+
+            ls ${{ env.SECRETS_FILES_PATH }} -alh
+
+            if [ -d "${{ env.SECRETS_FILES_PATH }}/Shared/" ]; then
+              ls ${{ env.SECRETS_FILES_PATH }}/Shared/ -alh
+            fi
+
+            if [ -d "${{ env.SECRETS_FILES_PATH }}/${{ inputs.app_name }}/" ]; then
+              ls ${{ env.SECRETS_FILES_PATH }}/${{ inputs.app_name }}/ -alh
+            fi
+
+            # 避免有目錄沒有檔案而失敗
+            if [[ -f ${{ env.SECRETS_FILES_PATH }}/Shared/${{ inputs.program_type }}-${{ inputs.deploy_environment }}-envVars.yml || \
+                  -f ${{ env.SECRETS_FILES_PATH }}/${{ inputs.app_name }}/${{ inputs.program_type }}-${{ inputs.deploy_environment }}-envVars.yml ]]; then
+
+              merge_files \
+              ${{ env.SECRETS_FILES_PATH }}/Shared/${{ inputs.program_type }}-${{ inputs.deploy_environment }}-envVars.yml \
+              ${{ env.SECRETS_FILES_PATH }}/${{ inputs.app_name }}/${{ inputs.program_type }}-${{ inputs.deploy_environment }}-envVars.yml \
+              --output ${{ runner.temp }}/secrets_envs_merge.yml --ignoreFileNotExist
+
+            fi
+
+            # 機敏性設定，所以將所有的值都替換成星號
+            # replace_values "${{ runner.temp }}/secrets_envs_merge.yml" "${{ runner.temp }}/secrets_replaceValue_envs_merge.yml" "*"
+            if [[ -f "${{ runner.temp }}/secrets_envs_merge.yml" ]]; then
+              yq '... comments="" | .[]="****"' "${{ runner.temp }}/secrets_envs_merge.yml" > "${{ runner.temp }}/secrets_replaceValue_envs_merge.yml"
+            fi
+
+            echo ""
+            if [[ -f "${{ runner.temp }}/secrets_replaceValue_envs_merge.yml" ]]; then
+                echo "機敏設定的環境變數設定如下："
+                cat ${{ runner.temp }}/secrets_replaceValue_envs_merge.yml
+            fi
+            echo ""
+        fi
+
+        echo "處理merged_all_envVars.yml"
+
+        merge_files \
+          ${{ runner.temp }}/template_envs_merge.yml \
+          ${{ runner.temp }}/project_envs_merge.yml \
+          ${{ runner.temp }}/program_envs_merge.yml \
+          ${{ runner.temp }}/secrets_envs_merge.yml \
+          --output ${{ runner.temp }}/merged_all_envVars.yml --ignoreFileNotExist
+
+        echo "處理merged_no_secrets_envVars.yml"
+
+        merge_files \
+          ${{ runner.temp }}/template_envs_merge.yml \
+          ${{ runner.temp }}/project_envs_merge.yml \
+          ${{ runner.temp }}/program_envs_merge.yml \
+          --output ${{ runner.temp }}/merged_no_secrets_envVars.yml --ignoreFileNotExist
+
+        echo "處理merged_replace_envVars.yml"
+
+        merge_files \
+          ${{ runner.temp }}/template_envs_merge.yml \
+          ${{ runner.temp }}/project_envs_merge.yml \
+          ${{ runner.temp }}/program_envs_merge.yml \
+          ${{ runner.temp }}/secrets_replaceValue_envs_merge.yml \
+          --output ${{ runner.temp }}/merged_replace_envVars.yml --ignoreFileNotExist
+
+        echo "處理所有檔案"
+
+        echo "merged_all_envVars_file=${{ runner.temp }}/merged_all_envVars.yml" >> $GITHUB_OUTPUT
+        echo "merged_no_secrets_envVars_file=${{ runner.temp }}/merged_no_secrets_envVars.yml" >> $GITHUB_OUTPUT
+        echo "merged_and_replace_envVars_file=${{ runner.temp }}/merged_replace_envVars.yml" >> $GITHUB_OUTPUT
+        echo "merged_secrets_envVars_file=${{ runner.temp }}/secrets_envs_merge.yml" >> $GITHUB_OUTPUT
+
+        ls ${{ runner.temp }} -al
+
+        echo "=====================完整內容(機敏值將以星號取代)====================="
+        cat $MergedAndReplaceFile

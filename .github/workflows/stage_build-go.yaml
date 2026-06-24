@@ -1,0 +1,295 @@
+name: Build Go Stage
+
+on:
+  workflow_call:
+    inputs:
+      # Required Inputs
+      app_name: # 應用程式的名稱，通常就是儲存庫名稱
+        description: 'The name of the application repository (e.g., ComplexDotNetSystem)'
+        required: true
+        type: string
+      app_repo:
+        required: true
+        type: string
+        description: 'Application repository name (e.g., your-org/your-app-repo)'
+      app_ref:
+        required: true
+        type: string
+        description: 'Application repository Git ref (branch/tag/commit)'
+      program_type:
+        description: 'The type of application (e.g., web, api, app, prog)'
+        required: true
+        type: string
+      code_type:
+        description: '程式類型 (go | nodejs | python | java)'
+        required: true
+        type: string
+
+      # Optional Inputs
+      override_variables:
+        description: 'JSON string of variables to override default configuration'
+        required: false
+        type: string
+        default: '{}'
+      
+
+      # With default values
+      source_path:
+        required: false
+        type: string
+        default: ''
+      go_version:
+        required: false
+        type: string
+        default: ''
+      build_container_image:
+        required: false
+        type: boolean
+        default: true
+      build_folder_path:
+        required: false
+        type: string
+        default: './'
+      build_args:
+        required: false
+        type: string
+        default: ''
+        description: 'Additional arguments for the build command, provided as a JSON string'
+      use_build_container:
+        required: false
+        type: boolean
+        default: false
+        description: 'Whether to run build inside a provided container image'
+
+      template_repo:
+        required: false
+        type: string
+        default: ''
+      template_ref:
+        required: false
+        type: string
+        default: ''
+      pipeline_repo:
+        required: false
+        type: string
+        default: ''
+      pipeline_repo_ref:
+        required: false
+        type: string
+        default: ''
+
+      image_tag:
+        description: 'Tag for the Docker image'
+        required: false
+        type: string
+        default: ''
+      dockerfile_name:
+        description: 'The name of the Dockerfile to use (if not using app-specific or template Dockerfile)'
+        required: false
+        type: string
+        default: ''
+      use_template_dockerfile:
+        description: 'Whether to use a template Dockerfile from the Pipeline Repo'
+        required: false
+        type: boolean
+        default: true
+      image_registry:
+        required: false
+        default: ''
+        type: string
+      image_repository:
+        required: false
+        default: ''
+        type: string
+      gcp_project_id:
+        required: false
+        default: ''
+        type: string
+      execute_file_name:
+        description: 'The executable file name inside the Docker image (if applicable)'
+        required: false
+        type: string
+        default: ''
+      image_src:
+        description: 'The image FROM tag source in dockerfile'
+        required: false
+        type: string
+        default: ''
+      image_args:
+        description: 'build arguments for the Docker image'
+        required: false
+        type: string
+        default: ''
+
+      ## deploy settings
+      deploy_environment:
+        required: true
+        type: string
+        description: 'dev | test | stg | prod'
+        default: dev
+      # k8s_location:
+      #   required: false
+      #   type: string
+      #   description: 'local | gcp | azure | aws'
+      #   default: local
+      # k8s_namespace:
+      #   required: false
+      #   type: string
+      #   default: ''
+
+      build_code_runs_on:
+        description: 'The type of runner to use for build code job'
+        required: false
+        type: string
+        default: ''
+
+      build_image_runs_on:
+        description: 'The type of runner to use for build image job'
+        required: false
+        type: string
+        default: ''
+
+      deploy_runs_on:
+        description: 'The type of runner to use for deploy job'
+        required: false
+        type: string
+        default: ''
+
+      # Extendsible Workflow
+      pre_build_args:
+        required: false
+        type: string
+        default: '{}'
+        description: 'JSON string of arguments for the pre-build action'
+      post_build_args:
+        required: false
+        type: string
+        default: '{}'
+        description: 'JSON string of arguments for the post-build action'
+
+      run_pre_build_action:
+        required: false
+        type: boolean
+        default: false
+        description: 'Whether to run the pre-build action, need to put in .github/workflows/actions/pre-build'
+      run_post_build_action:
+        required: false
+        type: boolean
+        default: false
+        description: 'Whether to run the post-build action, need to put in .github/workflows/actions/post-build'
+        
+      run_pre_build_image_action:
+        required: false
+        type: boolean
+        default: false
+        description: 'Whether to run the pre-build action, need to put in .github/workflows/actions/pre-build'
+      pre_build_image_args:
+        required: false
+        type: string
+        default: '{}'
+        description: 'JSON string of arguments for the pre-build action'
+      run_post_build_image_action:
+        required: false
+        type: boolean
+        default: false
+        description: 'Whether to run the post-build action, need to put in .github/workflows/actions/post-build'
+      post_build_image_args:
+        required: false
+        type: string
+        default: '{}'
+        description: 'JSON string of arguments for the post-build action'
+
+    secrets:
+      PAT_FOR_CHECKOUT_REPO:
+        required: true
+        description: 'Personal Access Token for checking out the repositories'
+    
+
+jobs:
+  setup:
+    name: 載入預先設定的共用變數
+    uses: ./.github/workflows/job_setup-config.yaml
+    with:
+      template_repo: ${{ inputs.template_repo }} # .
+      template_ref: ${{ inputs.template_ref }}
+      pipeline_repo: ${{ inputs.pipeline_repo }} # kenny2061/Pipelines
+      pipeline_repo_ref: ${{ inputs.pipeline_repo_ref }}
+      app_name: ${{ inputs.app_name }}
+      app_repo: ${{ inputs.app_repo }}
+      app_ref: ${{ inputs.app_ref }}
+      program_type: ${{ inputs.program_type }}
+      override_inputs: ${{ inputs.override_variables }}
+    secrets:
+      PAT_FOR_CHECKOUT_REPO: ${{ secrets.PAT_FOR_CHECKOUT_REPO }}
+
+  build_code:
+    needs: setup
+    name: 建置與部署 Go 應用程式
+    uses: ./.github/workflows/job_build-go.yaml
+    with:
+      runs_on: ${{ inputs.build_code_runs_on }}
+      template_repo: ${{ inputs.template_repo }} # .
+      template_ref: ${{ inputs.template_ref }}
+      pipeline_repo: ${{ inputs.pipeline_repo }} # kenny2061/Pipelines
+      pipeline_repo_ref: ${{ inputs.pipeline_repo_ref }}
+      app_name: ${{ inputs.app_name }}
+      app_repo: ${{ inputs.app_repo }}
+      app_ref: ${{ inputs.app_ref }}
+      program_type: ${{ inputs.program_type }}
+      code_type: ${{ inputs.code_type }}
+      build_folder_path: ${{ inputs.build_folder_path }}
+      merged_config_json: ${{ needs.setup.outputs.merged_config_json }}
+      run_pre_build_action: ${{ inputs.run_pre_build_action }}
+      run_post_build_action: ${{ inputs.run_post_build_action }}
+      use_build_container: ${{ inputs.use_build_container }}
+      builder_image: 'golang:1.25-alpine'
+    secrets:
+      PAT_FOR_CHECKOUT_REPO: ${{ secrets.PAT_FOR_CHECKOUT_REPO }}
+
+  build_image:
+    name: Build Container Image
+    uses: ./.github/workflows/job_build-image.yaml
+    needs: [setup, build_code]
+    if: ${{ inputs.build_container_image == true }}
+    with:
+      runs_on: ${{ inputs.build_image_runs_on }}
+      template_repo: ${{ inputs.template_repo }} # .
+      template_ref: ${{ inputs.template_ref }}
+      pipeline_repo: ${{ inputs.pipeline_repo }} # kenny2061/Pipelines
+      pipeline_repo_ref: ${{ inputs.pipeline_repo_ref }}
+      app_name: ${{ inputs.app_name }}
+      app_repo: ${{ inputs.app_repo }}
+      app_ref: ${{ inputs.app_ref }}
+      program_type: ${{ inputs.program_type }}
+      code_type: ${{ inputs.code_type }}
+      merged_config_json: ${{ needs.setup.outputs.merged_config_json }}
+      use_template_dockerfile: ${{ inputs.use_template_dockerfile }}
+      dockerfile_name: ${{ inputs.dockerfile_name || 'Go.Dockerfile' }}
+      execute_file_name: ${{ inputs.execute_file_name }}
+      image_src: ${{ inputs.image_src || 'golang:1.25-alpine' }}
+      image_registry: ${{ inputs.image_registry }}
+      image_repository: ${{ inputs.image_repository }}
+      gcp_project_id: ${{ inputs.gcp_project_id }}
+    secrets:
+      PAT_FOR_CHECKOUT_REPO: ${{ secrets.PAT_FOR_CHECKOUT_REPO }}
+  
+  deploy:
+    needs: [setup, build_image]
+    name: 部署K8s
+    uses: ./.github/workflows/job_deploy-k8s.yaml
+    with:
+      runs_on: ${{ inputs.deploy_runs_on }}
+      template_repo: ${{ inputs.template_repo }} # .
+      template_ref: ${{ inputs.template_ref }}
+      pipeline_repo: ${{ inputs.pipeline_repo }} # kenny2061/Pipelines
+      pipeline_repo_ref: ${{ inputs.pipeline_repo_ref }}
+      app_name: ${{ inputs.app_name }}
+      program_type: ${{ inputs.program_type }}
+      code_type: ${{ inputs.code_type }}
+      merged_config_json: ${{ needs.setup.outputs.merged_config_json }}
+      deploy_environment: ${{ inputs.deploy_environment }}
+      k8s_location: ${{ inputs.deploy_environment == 'dev' && 'local' || 'gcp' }}
+      # k8s_namespace: ${{ inputs.k8s_namespace }} # 在job中利用環境變數的值
+      image_tag: ${{ github.run_id }}
+    secrets:
+      PAT_FOR_CHECKOUT_REPO: ${{ secrets.PAT_FOR_CHECKOUT_REPO }}

@@ -1,0 +1,158 @@
+name: Deploy to Kubernetes (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      # Required Inputs
+      app_name:
+        description: 'The name of the application repository'
+        required: true
+        type: string
+      program_type:
+        description: 'The type of application (e.g., web, api, app, prog)'
+        required: true
+        type: string
+      code_type:
+        description: '程式類型 (go | nodejs | python | java)'
+        required: true
+        type: string
+
+      deploy_environment:
+        required: true
+        type: string
+        description: 'dev | test | stg | prod'
+      # deploy_target:
+      #   description: '部署目標 (local | gcp)'
+      #   required: true
+      #   type: string
+      #   default: 'local'
+
+      # With default values
+      template_repo:
+        required: false
+        type: string
+        default: ''
+      template_ref:
+        required: false
+        type: string
+        default: ''
+      pipeline_repo:
+        required: false
+        type: string
+        default: ''
+      pipeline_repo_ref:
+        required: false
+        type: string
+        default: ''
+
+      secrets_repo:
+        required: false
+        type: string
+        default: 'Secrets'
+      secrets_repo_ref:
+        required: false
+        type: string
+        default: 'main'
+
+      k8s_location:
+        required: false
+        type: string
+        default: local
+      k8s_namespace:
+        required: false
+        type: string
+        default: ''
+      wait_timeout_second:
+        required: false
+        type: number
+        default: 300
+      update_image_tag:
+        required: false
+        type: boolean
+        default: true
+      image_tag:
+        required: false
+        type: string
+        default: latest
+      ci_workflow_run_id:
+        required: false
+        type: string
+        default: ''
+
+      kubeconfig_file:
+        required: false
+        type: string
+        default: 'cicd-kubeconfig.yaml'
+
+      deploy_runs_on:
+        description: 'The type of runner to use for deploy job'
+        required: false
+        type: string
+        default: ''
+      
+      # Optional Inputs
+      override_variables:
+        description: 'JSON string of variables to override default configuration'
+        required: false
+        type: string
+        default: '{}'
+        
+      # Extendsible Workflow
+      run_pre_deploy_k8s_action:
+        required: false
+        type: boolean
+        default: false
+      pre_deploy_k8s_action_args:
+        required: false
+        type: string
+        default: ''
+      run_post_deploy_k8s_action:
+        required: false
+        type: boolean
+        default: false
+      post_deploy_k8s_action_args:
+        required: false
+        type: string
+        default: ''
+
+    secrets:
+      PAT_FOR_CHECKOUT_REPO:
+        required: true
+
+jobs:
+  setup:
+    name: 載入預先設定的共用變數
+    uses: ./.github/workflows/job_setup-config.yaml
+    with:
+      template_repo: ${{ inputs.template_repo }} # .
+      template_ref: ${{ inputs.template_ref }}
+      pipeline_repo: ${{ inputs.pipeline_repo }} # kenny2061/Pipelines
+      pipeline_repo_ref: ${{ inputs.pipeline_repo_ref }}
+      app_name: ${{ inputs.app_name }}
+      program_type: ${{ inputs.program_type }}
+      override_inputs: ${{ inputs.override_variables }}
+    secrets:
+      PAT_FOR_CHECKOUT_REPO: ${{ secrets.PAT_FOR_CHECKOUT_REPO }}
+  
+  deploy:
+    needs: [setup]
+    name: 部署K8s
+    uses: ./.github/workflows/job_deploy-k8s.yaml
+    with:
+      runs_on: ${{ inputs.deploy_runs_on }}
+      template_repo: ${{ inputs.template_repo }} # .
+      template_ref: ${{ inputs.template_ref }}
+      pipeline_repo: ${{ inputs.pipeline_repo }} # kenny2061/Pipelines
+      pipeline_repo_ref: ${{ inputs.pipeline_repo_ref }}
+      app_name: ${{ inputs.app_name }}
+      program_type: ${{ inputs.program_type }}
+      code_type: ${{ inputs.code_type }}
+      merged_config_json: ${{ needs.setup.outputs.merged_config_json }}
+      deploy_environment: ${{ inputs.deploy_environment }}
+      k8s_location: ${{ inputs.deploy_environment == 'dev' && 'local' || 'gcp' }}
+      # k8s_namespace: ${{ inputs.k8s_namespace }} # 在job中利用環境變數的值
+      wait_timeout_second: ${{ inputs.wait_timeout_second }}
+      image_tag: ${{ inputs.ci_workflow_run_id || inputs.image_tag }}
+      ci_workflow_run_id: ${{ inputs.ci_workflow_run_id }}
+    secrets:
+      PAT_FOR_CHECKOUT_REPO: ${{ secrets.PAT_FOR_CHECKOUT_REPO }}

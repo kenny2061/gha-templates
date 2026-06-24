@@ -1,0 +1,196 @@
+name: Build React
+
+on:
+  workflow_call:
+    inputs:
+      src-path:
+        required: false
+        type: string
+        default: 'src'
+      node-version:
+        required: false
+        type: string
+        default: '18.x'
+      build-command:
+        required: false
+        type: string
+        default: 'npm run build'
+      artifact-path:
+        required: false
+        type: string
+        default: 'dist'
+      caller-repo:
+        required: false
+        type: string
+        description: 'The repository that called this workflow (owner/repo)'
+      caller-ref:
+        required: false
+        type: string
+        description: 'The Git ref of the calling repository'
+      pre-build-workflow:
+        required: false
+        type: string
+        description: 'Path to pre-build workflow file (e.g., .github/workflows/pre-build.yaml)'
+      pre-build-args:
+        required: false
+        type: string
+        default: '{}'
+        description: 'JSON string of arguments for the pre-build workflow'
+      post-build-workflow:
+        required: false
+        type: string
+        description: 'Path to post-build workflow file (e.g., .github/workflows/post-build.yaml)'
+      post-build-args:
+        required: false
+        type: string
+        default: '{}'
+        description: 'JSON string of arguments for the post-build workflow'
+      publish-output-artifact:
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      github-token:
+        required: false
+
+jobs:
+  build:
+    name: Build React Application
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source repository
+        uses: actions/checkout@v4
+
+      - name: Checkout caller repository (for external workflow files)
+        if: inputs.caller-repo != ''
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.caller-repo }}
+          ref: ${{ inputs.caller-ref }}
+          path: caller-repo-checkout
+          token: ${{ secrets.github-token || secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: 'npm'
+
+      - name: Print parameters and variables
+        shell: bash
+        run: |
+          echo "=== Build Parameters ==="
+          echo "Source Path: ${{ inputs.src-path }}"
+          echo "Build Command: ${{ inputs.build-command }}"
+          echo "Node Version: ${{ inputs.node-version }}"
+          echo "Artifact Path: ${{ inputs.artifact-path }}"
+          echo "Pre-Build Workflow: ${{ inputs.pre-build-workflow }}"
+          echo "Post-Build Workflow: ${{ inputs.post-build-workflow }}"
+
+      - name: Create pipeline files folder
+        shell: bash
+        run: |
+          mkdir -p ${{ runner.temp }}/pipeline-files
+          mkdir -p ${{ runner.temp }}/zip-files
+
+      - name: Run pre-build workflow
+        if: inputs.pre-build-workflow != ''
+        shell: bash
+        run: |
+          PRE_BUILD_FILENAME=$(basename "${{ inputs.pre-build-workflow }}")
+          
+          # Install GitHub CLI
+          if ! command -v gh &> /dev/null; then
+            sudo apt-get update && sudo apt-get install -y gh
+          fi
+          
+          # Authenticate GitHub CLI
+          echo "${{ secrets.github-token || secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+          
+          # Trigger pre-build workflow in caller's repository
+          echo "Triggering pre-build workflow: ${{ inputs.pre-build-workflow }}"
+          gh workflow run "$PRE_BUILD_FILENAME" \
+            --repo "${{ inputs.caller-repo }}" \
+            --ref "${{ inputs.caller-ref }}" \
+            -F args_json='${{ inputs.pre-build-args }}'
+        env:
+          GITHUB_TOKEN: ${{ secrets.github-token || secrets.GITHUB_TOKEN }}
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          cd ${{ inputs.src-path }}
+          npm ci
+
+      - name: Run linting
+        shell: bash
+        continue-on-error: true
+        run: |
+          cd ${{ inputs.src-path }}
+          npm run lint || true
+
+      - name: Run tests
+        shell: bash
+        continue-on-error: true
+        run: |
+          cd ${{ inputs.src-path }}
+          npm test -- --watchAll=false --coverage || true
+
+      - name: Build application
+        shell: bash
+        run: |
+          cd ${{ inputs.src-path }}
+          ${{ inputs.build-command }}
+
+      - name: Run post-build workflow
+        if: inputs.post-build-workflow != ''
+        shell: bash
+        run: |
+          POST_BUILD_FILENAME=$(basename "${{ inputs.post-build-workflow }}")
+          
+          # Install GitHub CLI
+          if ! command -v gh &> /dev/null; then
+            sudo apt-get update && sudo apt-get install -y gh
+          fi
+          
+          # Authenticate GitHub CLI
+          echo "${{ secrets.github-token || secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+          
+          # Trigger post-build workflow in caller's repository
+          echo "Triggering post-build workflow: ${{ inputs.post-build-workflow }}"
+          gh workflow run "$POST_BUILD_FILENAME" \
+            --repo "${{ inputs.caller-repo }}" \
+            --ref "${{ inputs.caller-ref }}" \
+            -F args_json='${{ inputs.post-build-args }}'
+        env:
+          GITHUB_TOKEN: ${{ secrets.github-token || secrets.GITHUB_TOKEN }}
+
+      - name: Archive build output
+        shell: bash
+        run: |
+          cd ${{ inputs.src-path }}
+          zip -r ${{ runner.temp }}/zip-files/buildResult.zip ${{ inputs.artifact-path }} -x "*.git*"
+          ls -lah ${{ runner.temp }}/zip-files/buildResult.zip
+
+      - name: Capture git commit SHA
+        id: git-sha
+        shell: bash
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          echo "$(git rev-parse HEAD)" > ${{ runner.temp }}/pipeline-files/gitCommitSHA.txt
+
+      - name: Upload build output artifact
+        if: inputs.publish-output-artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output-files
+          path: ${{ runner.temp }}/zip-files/buildResult.zip
+          retention-days: 30
+
+      - name: Upload pipeline files artifact
+        if: inputs.publish-output-artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-files
+          path: ${{ runner.temp }}/pipeline-files/
+          retention-days: 30

@@ -1,0 +1,329 @@
+name: Build Go
+
+on:
+  workflow_call:
+    inputs:
+      # Required Inputs
+      app_name: # 應用程式的名稱，通常就是儲存庫名稱
+        description: 'The name of the application repository (e.g., ComplexDotNetSystem)'
+        required: true
+        type: string
+      app_repo:
+        required: false
+        type: string
+        description: 'The repository that called this workflow (owner/repo)'
+      app_ref:
+        required: false
+        type: string
+        description: 'The Git ref of the calling repository'
+      program_type:
+        description: 'The type of application (e.g., web, api, app, prog)'
+        required: true
+        type: string
+      merged_config_json:
+        description: 'JSON string of merged configuration variables'
+        required: true
+        type: string
+      code_type:
+        description: '程式類型 (go | nodejs | python | java)'
+        required: true
+        type: string
+
+      # With default values
+      source_path:
+        required: false
+        type: string
+        default: ''
+      go_version:
+        required: false
+        type: string
+        default: ''
+      use_build_container:
+        required: false
+        type: boolean
+        default: false
+        description: 'Whether to run build inside a provided container image'
+      build_container_run_options:
+        required: false
+        type: string
+        default: ''
+      build_folder_path:
+        required: false
+        type: string
+        default: './'
+      build_command:
+        required: false
+        type: string
+        default: ''
+        description: 'Custom build command to run instead of default go build'
+      build_args:
+        required: false
+        type: string
+        default: ''
+        description: 'Additional arguments for the build command, provided as a JSON string'
+
+      template_repo:
+        required: false
+        type: string
+        default: ''
+      template_ref:
+        required: false
+        type: string
+        default: ''
+      pipeline_repo:
+        required: false
+        type: string
+        default: ''
+      pipeline_repo_ref:
+        required: false
+        type: string
+        default: ''
+
+      runs_on:
+        description: 'The type of runner to use'
+        required: false
+        type: string
+        default: ''
+
+      # Extendsible Workflow
+      pre_build_args:
+        required: false
+        type: string
+        default: '{}'
+        description: 'JSON string of arguments for the pre-build action'
+      post_build_args:
+        required: false
+        type: string
+        default: '{}'
+        description: 'JSON string of arguments for the post-build action'
+      run_pre_build_action:
+        required: false
+        type: boolean
+        default: false
+        description: 'Whether to run the pre-build action, need to put in .github/workflows/actions/pre-build'
+      run_post_build_action:
+        required: false
+        type: boolean
+        default: false
+        description: 'Whether to run the post-build action, need to put in .github/workflows/actions/post-build'
+
+      builder_image:
+        required: false
+        type: string
+        default: 'golang:1.25-alpine'
+        description: 'Container image to use for build (must contain go toolchain)'
+      # container_src_mount:
+      #   required: false
+      #   type: string
+      #   default: '/workspace'
+      # container-out-mount:
+      #   required: false
+      #   type: string
+      #   default: '/workspace/dist'
+
+      # publish_output_artifact:
+      #   required: false
+      #   type: boolean
+      #   default: true
+    outputs:
+      merged_config_json:
+        description: 'The merged configuration JSON after build'
+        value: ${{ inputs.merged_config_json }}
+    secrets:
+      PAT_FOR_CHECKOUT_REPO: # 用於檢出 Pipeline Repo 的 PAT
+        required: true
+
+jobs:
+  build_code:
+    name: Build Go Application
+    runs-on: ${{ inputs.runs_on || 'ubuntu-latest' }}
+    outputs:
+      merged_config_json: ${{ inputs.merged_config_json }}
+    steps:
+      - name: 將 JSON 轉為 Env
+        uses: ./actions/convert-json-to-env@main
+        with:
+          merged_config_json: ${{ inputs.merged_config_json }}
+
+      - name: Checkout Pipeline Repository
+        uses: ./actions/checkout-repo@main
+        with:
+          template_repo: ${{ inputs.template_repo }} # .
+          template_ref: ${{ inputs.template_ref }}
+          pipeline_repo: ${{ inputs.pipeline_repo }} # kenny2061/Pipelines
+          pipeline_repo_ref: ${{ inputs.pipeline_repo_ref }}
+          application_repo: ${{ inputs.app_repo }}
+          application_ref: ${{ inputs.app_ref }}
+          token: ${{ secrets.PAT_FOR_CHECKOUT_REPO }} # 使用傳入的 PAT
+
+      - name: Setup Go
+        if: ${{ inputs.use_build_container != true }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go_version || env.GO_VERSION || '1.25.x' }}
+
+      - name: Ensure Docker available (for container builds)
+        if: ${{ inputs.use_build_container == true }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v docker &> /dev/null; then
+            echo "docker present"
+            exit 0
+          fi
+          if command -v apt-get &> /dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y docker.io || (echo 'Failed to install docker' && exit 1)
+          else
+            echo 'docker not found and cannot install on this runner. Provide a runner with docker available.'
+            exit 1
+          fi
+
+      - name: Setup Pipeline Need Folders
+        uses: ./actions/setup-folders@main
+        with:
+          app_name: ${{ inputs.app_name }}
+          program_type: ${{ inputs.program_type }}
+
+      - name: Download dependencies
+        if: ${{ inputs.use_build_container != true }}
+        shell: bash
+        env:
+          PAT: ${{ secrets.PAT_FOR_CHECKOUT_REPO }}
+        run: |
+          go env -w GOPRIVATE=github.com/kenny2061/* && \
+          git config --global --add url."https://x-oauth-basic:$PAT@github.com/".insteadOf "https://github.com/"
+
+          cd ${{ github.workspace }}/$SOURCE_RESOURCE_NAME/
+          go mod download
+
+          go env
+
+      - name: Pre build action
+        if: inputs.run_pre_build_action
+        uses: ./sources/.actions/pre-build
+        with:
+          args_json: ${{ inputs.pre_build_args }}
+          merged_config_json: ${{ inputs.merged_config_json }}
+
+      # - name: Run Go linting
+      #   if: ${{ inputs.use_build_container != true }}
+      #   shell: bash
+      #   continue-on-error: true
+      #   run: |
+      #     # Install golangci-lint
+      #     curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.54.0
+      #     cd ${{ inputs.src-path }}
+      #     golangci-lint run ./... || true
+
+      # - name: Run Go tests
+      #   if: ${{ inputs.use_build_container != true }}
+      #   shell: bash
+      #   continue-on-error: true
+      #   run: |
+      #     cd ${{ inputs.src-path }}
+      #     go test -v -coverprofile=coverage.out ./... || true
+
+      - name: Build application
+        if: ${{ inputs.use_build_container != true }}
+        shell: bash
+        run: |
+          # 確保變數正確展開 (建議改用 env 或 github context)
+          cd ${{ github.workspace }}/${{ env.SOURCE_RESOURCE_NAME }}/
+          
+          # 執行編譯，並輸出到指定資料夾
+          # 注意：這裡建議也改用 ${{ env.BUILD_OUTPUT_FOLDER }} 以防變數未展開
+          OUTPUT_PATH="${{ runner.temp }}/${{ env.BUILD_OUTPUT_FOLDER }}"
+          
+          echo "Building to: $OUTPUT_PATH"
+          go build ${{ inputs.build_args }} -v -o "$OUTPUT_PATH" ${{ inputs.build_folder_path }}
+          
+          # 🔍 Debug: 檢查編譯後有沒有檔案
+          ls -lah "$OUTPUT_PATH"
+
+      - name: Build application in container
+        if: ${{ inputs.use_build_container == true }}
+        uses: ./actions/docker-run@main
+        with:
+          container_image: ${{ inputs.builder_image }}
+          source_folder: ${{ github.workspace }}/${{ env.SOURCE_RESOURCE_NAME }}
+          output_folder: ${{ runner.temp }}/${{ env.BUILD_OUTPUT_FOLDER }}
+          shell_script_path: ${{ env.APP_PIPELINE_FILES_PATH }}/scripts/build_code_script.sh
+          docker_run_options: "-e GOOS=${{ env.GOOS }} -e GOARCH=${{ env.GOARCH }} -e CGO_ENABLED=${{ env.CGO_ENABLED }} ${{ inputs.build_container_run_options }}"
+          container_shell_type: sh
+          checkout_repo_pat: ${{ secrets.PAT_FOR_CHECKOUT_REPO }}
+
+      # - name: Build application in container
+      #   if: ${{ inputs.use_build_container == true }}
+      #   shell: bash
+      #   env:
+      #     GITHUB_WORKSPACE: ${{ github.workspace }}
+      #     SRC_PATH: ${{ github.workspace }}/${{ env.SOURCE_RESOURCE_NAME }}/
+      #     OUTPUT_PATH: ${{ runner.temp }}/${{ env.BUILD_OUTPUT_FOLDER }}
+      #   run: |
+      #     set -euo pipefail
+      #     IMAGE="${{ inputs.builder_image }}"
+      #     if [ -z "$IMAGE" ]; then
+      #       echo "builder_image not provided" >&2
+      #       exit 1
+      #     fi
+          
+      #     mkdir -p "$OUTPUT_PATH"
+
+      #     echo "Pulling image $IMAGE"
+
+      #     docker pull "$IMAGE"
+
+      #     docker run --rm \
+      #       -v "$SRC_PATH":/tmp/source \
+      #       -v "$OUTPUT_PATH":/tmp/output \
+      #       -e GOOS=${{ env.GOOS }} \
+      #       -e GOARCH=${{ env.GOARCH }} \
+      #       -e CGO_ENABLED=${{ env.CGO_ENABLED }} \
+      #       -w /tmp/source \
+      #       "$IMAGE" sh -lc "go mod download && go build ${{ inputs.build_args }} -v -o \"/tmp/output/buildResult\""
+            
+      - name: Post build action
+        if: inputs.run_post_build_action
+        uses: ./sources/.actions/post-build
+        with:
+          args_json: ${{ inputs.post_build_args }}
+          merged_config_json: ${{ inputs.merged_config_json }}
+
+      - name: Archive build output
+        shell: bash
+        run: |
+          cd ${{ runner.temp }}/${{ env.BUILD_OUTPUT_FOLDER }}
+          zip -r ${{ runner.temp }}/${{ env.ZIP_FOLDER }}/buildResult.zip . -x "*.git*" ".git/*" "vendor/*" "node_modules/*" ".env*" "*.log"
+          ls -lah ${{ runner.temp }}/${{ env.ZIP_FOLDER }}/buildResult.zip
+
+      - name: Capture git commit SHA
+        id: git-sha
+        shell: bash
+        run: |
+          cd ${{ github.workspace }}/${{ env.SOURCE_RESOURCE_NAME }}/
+          echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          echo "$(git rev-parse HEAD)" > ${{ runner.temp }}/${{ env.PIPELINE_FILES_ARTIFACT_FOLDER }}/gitCommitSHA.txt
+
+      - name: Upload build output artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BUILD_OUTPUT_ARTIFACT_NAME }}
+          path: ${{ runner.temp }}/${{ env.ZIP_FOLDER }}/buildResult.zip
+          retention-days: 1
+
+      - name: Upload pipeline files artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PIPELINE_FILES_ARTIFACT_NAME}}
+          path: ${{ runner.temp }}/${{ env.PIPELINE_FILES_ARTIFACT_FOLDER}}/
+          retention-days: 7
+
+      # - name: Upload test coverage
+      #   if: inputs.publish_output_artifact
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: go-test-coverage
+      #     path: ${{ inputs.src-path }}/coverage.out
+      #     retention-days: 7
+  

@@ -1,0 +1,188 @@
+name: Deploy to Environment
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+        description: 'Deployment environment (dev, qa, stage, prod)'
+      deployment-type:
+        required: true
+        type: string
+        description: 'Deployment type (cloudrun, k8s)'
+      image-repository:
+        required: true
+        type: string
+      region:
+        required: false
+        type: string
+        description: 'Cloud region'
+      k8s-namespace:
+        required: false
+        type: string
+        description: 'K8s namespace'
+      service-name:
+        required: true
+        type: string
+        description: 'Service name'
+      require-approval:
+        required: false
+        type: boolean
+        default: false
+      deployment-labels:
+        required: false
+        type: string
+        default: ''
+    secrets:
+      gcp-sa-key:
+        required: false
+      gcp-project-id:
+        required: false
+      k8s-config:
+        required: false
+
+jobs:
+  approve-deployment:
+    name: Approve Deployment
+    runs-on: ubuntu-latest
+    if: inputs.require-approval == true
+    environment:
+      name: ${{ inputs.environment }}
+    steps:
+      - name: Deployment Approval
+        run: |
+          echo "Deployment to ${{ inputs.environment }} approved"
+
+  deploy-cloudrun:
+    name: Deploy to Cloud Run
+    runs-on: ubuntu-latest
+    needs: [approve-deployment]
+    if: |
+      always() && inputs.deployment-type == 'cloudrun' &&
+      (inputs.require-approval == false || needs.approve-deployment.result == 'success')
+    environment:
+      name: ${{ inputs.environment }}
+    steps:
+      - name: Checkout gha-templates repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/gha-templates
+          path: gha-templates-repo
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.gcp-sa-key }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker
+        run: |
+          gcloud auth configure-docker
+
+      - name: Deploy to Cloud Run
+        shell: bash
+        run: |
+          gcloud run deploy ${{ inputs.service-name }} \
+            --image ${{ inputs.image-repository }}:latest \
+            --region ${{ inputs.region }} \
+            --project ${{ secrets.gcp-project-id }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --set-env-vars ENVIRONMENT=${{ inputs.environment }}
+
+      - name: Get Cloud Run URL
+        id: cloudrun-url
+        shell: bash
+        run: |
+          URL=$(gcloud run services describe ${{ inputs.service-name }} \
+            --region ${{ inputs.region }} \
+            --project ${{ secrets.gcp-project-id }} \
+            --format 'value(status.url)')
+          echo "url=$URL" >> $GITHUB_OUTPUT
+
+      - name: Report deployment
+        shell: bash
+        run: |
+          echo "=== Cloud Run Deployment ==="
+          echo "Service: ${{ inputs.service-name }}"
+          echo "Region: ${{ inputs.region }}"
+          echo "URL: ${{ steps.cloudrun-url.outputs.url }}"
+
+  deploy-k8s:
+    name: Deploy to Kubernetes
+    runs-on: ubuntu-latest
+    needs: [approve-deployment]
+    if: |
+      always() && inputs.deployment-type == 'k8s' &&
+      (inputs.require-approval == false || needs.approve-deployment.result == 'success')
+    environment:
+      name: ${{ inputs.environment }}
+    steps:
+      - name: Checkout source repository
+        uses: actions/checkout@v4
+
+      - name: Checkout gha-templates repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/gha-templates
+          path: gha-templates-repo
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Configure kubectl context
+        shell: bash
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.k8s-config }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+
+      - name: Prepare kustomization
+        shell: bash
+        run: |
+          # Copy K8s manifests from gha-templates repo
+          if [ -d "gha-templates-repo/k8s" ]; then
+            cp -r "gha-templates-repo/k8s" k8s-deploy
+          else
+            echo "K8s manifests not found"
+            exit 1
+          fi
+
+      - name: Apply kustomization
+        shell: bash
+        run: |
+          KUSTOMIZE_PATH="k8s-deploy/${{ inputs.deployment-type }}/base"
+          if [ -f "$KUSTOMIZE_PATH/kustomization.yaml" ]; then
+            kubectl apply -k "$KUSTOMIZE_PATH"
+          else
+            echo "Kustomization file not found"
+            exit 1
+          fi
+
+      - name: Update image
+        shell: bash
+        run: |
+          kubectl set image deployment/${{ inputs.service-name }} \
+            ${{ inputs.service-name }}=${{ inputs.image-repository }}:latest \
+            --namespace ${{ inputs.k8s-namespace }} \
+            --record
+
+      - name: Wait for rollout
+        shell: bash
+        run: |
+          kubectl rollout status deployment/${{ inputs.service-name }} \
+            --namespace ${{ inputs.k8s-namespace }} \
+            --timeout=5m
+
+      - name: Report deployment
+        shell: bash
+        run: |
+          echo "=== Kubernetes Deployment ==="
+          echo "Service: ${{ inputs.service-name }}"
+          echo "Namespace: ${{ inputs.k8s-namespace }}"
+          echo "Image: ${{ inputs.image-repository }}"
+          kubectl get deployment ${{ inputs.service-name }} \
+            -n ${{ inputs.k8s-namespace }} -o wide

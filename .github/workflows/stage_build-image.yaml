@@ -1,0 +1,19 @@
+name: Build Container Image
+
+on:
+  workflow_call:
+
+jobs:
+  build-image:
+    name: Build Container Image
+    uses: ./.github/workflows/job_build-container-image.yaml@main
+    with:
+      app_name: ${{ inputs.app_name }}
+      app_repo: ${{ inputs.app_repo }}
+      app_ref: ${{ inputs.app_ref }}
+      dockerfile_path: ${{ inputs.dockerfile_path }}
+      context_path: ${{ inputs.context_path }}
+      image_name: ${{ inputs.image_name }}
+      image_tags: ${{ inputs.image_tags }}
+      build_args: ${{ inputs.build_args }}
+      override_variables: ${{ inputs.override_variables }}

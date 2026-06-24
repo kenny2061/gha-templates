@@ -1,0 +1,45 @@
+name: Convert JSON to ENV Action
+
+inputs:
+  merged_config_json:
+    description: 'JSON string of merged configuration variables'
+    required: true
+    type: string
+
+runs:
+  using: "composite"
+  steps:
+    - name: Ensure required tools (gh, jq)
+      shell: bash
+      run: |
+        set -euo pipefail
+        MISSING=()
+        if ! command -v gh &> /dev/null; then
+          MISSING+=(gh)
+        fi
+        if ! command -v jq &> /dev/null; then
+          MISSING+=(jq)
+        fi
+        if [ ${#MISSING[@]} -gt 0 ]; then
+          echo "Missing tools: ${MISSING[*]}. Attempting to install..."
+          if command -v apt-get &> /dev/null; then
+            sudo apt-get update
+            if printf '%s\n' "${MISSING[@]}" | grep -q gh; then
+              sudo apt-get install -y gh || (echo 'Failed to install gh' && exit 1)
+            fi
+            if printf '%s\n' "${MISSING[@]}" | grep -q jq; then
+              sudo apt-get install -y jq || (echo 'Failed to install jq' && exit 1)
+            fi
+          else
+            echo 'No supported package manager found to install required tools. Please run on an ubuntu runner or provide gh/jq.'
+            exit 1
+          fi
+        else
+          echo 'All required tools present.'
+        fi
+    - name: Convert Variables Json To Env Vars
+      shell: bash
+      env:
+        MERGED_CONFIG_JSON: ${{ inputs.merged_config_json }}
+      run: |
+        echo "$MERGED_CONFIG_JSON" | jq -r 'to_entries|map("\(.key)=\(.value|tostring)")|.[]' >> $GITHUB_ENV

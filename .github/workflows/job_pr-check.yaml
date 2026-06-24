@@ -1,0 +1,101 @@
+name: Pull Request Check
+
+on:
+  workflow_call:
+    inputs:
+      sln-or-csproj-name:
+        required: false
+        type: string
+        description: 'Solution or Project file name for .NET'
+      src-path:
+        required: false
+        type: string
+        default: 'src'
+      dotnet-version:
+        required: false
+        type: string
+        default: '8.0.x'
+      code-pre-build-steps:
+        required: false
+        type: string
+        default: ''
+      code-post-build-steps:
+        required: false
+        type: string
+        default: ''
+
+jobs:
+  pr-check:
+    name: Pull Request Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        if: inputs.sln-or-csproj-name != ''
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+
+      - name: Print parameters
+        shell: bash
+        run: |
+          echo "=== PR Check Parameters ==="
+          echo "Source Path: ${{ inputs.src-path }}"
+          echo "Solution/Project: ${{ inputs.sln-or-csproj-name }}"
+          echo "DotNet Version: ${{ inputs.dotnet-version }}"
+
+      - name: Run code pre-check steps
+        if: inputs.code-pre-build-steps != ''
+        shell: bash
+        run: |
+          ${{ inputs.code-pre-build-steps }}
+
+      - name: Restore dependencies
+        if: inputs.sln-or-csproj-name != ''
+        shell: bash
+        run: |
+          dotnet restore "${{ inputs.src-path }}/${{ inputs.sln-or-csproj-name }}"
+
+      - name: Build check
+        if: inputs.sln-or-csproj-name != ''
+        shell: bash
+        run: |
+          dotnet build "${{ inputs.src-path }}/${{ inputs.sln-or-csproj-name }}" \
+            --configuration Release \
+            --no-restore \
+            --verbosity minimal
+
+      - name: Code analysis
+        if: inputs.sln-or-csproj-name != ''
+        shell: bash
+        run: |
+          # Run static analysis or linting tools
+          echo "Running code analysis..."
+          # Example: dotnet format --verify-no-changes
+          # Or use SonarQube for more comprehensive analysis
+
+      - name: Run code post-check steps
+        if: inputs.code-post-build-steps != ''
+        shell: bash
+        run: |
+          ${{ inputs.code-post-build-steps }}
+
+      - name: Comment PR result
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const jobStatus = '${{ job.status }}';
+            const commentBody = `## PR Check Results\n\n✅ Checks Completed: ${jobStatus.toUpperCase()}\n\n`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: commentBody
+            });

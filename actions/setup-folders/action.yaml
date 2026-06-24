@@ -1,0 +1,89 @@
+name: 檢查必要目錄是否存在 & 組合路徑
+
+inputs:
+  # Required Inputs
+  app_name: # 應用程式的名稱，通常就是儲存庫名稱
+    description: 'The name of the application repository (e.g., ComplexDotNetSystem)'
+    required: true
+    type: string
+  program_type:
+    description: 'The type of application (e.g., web, api, app, prog)'
+    required: true
+    type: string
+  actions_symbol_link_place:
+    description: 'actions folder symbol link create folder'
+    requested: false
+    type: string
+    default: ''
+
+runs:
+  using: "composite"
+  steps:
+    - name: 檢查必要目錄是否存在
+      shell: bash
+      run: |
+        mkdir -p ${{ runner.temp }}/${{ env.PIPELINE_FILES_ARTIFACT_FOLDER }}
+        mkdir -p ${{ runner.temp }}/${{ env.ZIP_FOLDER }}
+        mkdir -p ${{ runner.temp }}/${{ env.BUILD_OUTPUT_FOLDER }}
+        mkdir -p ${{ runner.temp }}/${{ env.BUILD_IMAGE_BASE_FOLDER }}
+        mkdir -p ${{ runner.temp }}/ImgContextFolder
+        ls -al ${{ runner.temp }}
+        
+    - name: 組合路徑並輸出成ENV環境變數
+      id: setup_paths
+      shell: bash
+      run: |
+        echo "PIPELINE_FILES_ARTIFACT_FOLDER_PATH=${{ runner.temp }}/${{ env.PIPELINE_FILES_ARTIFACT_FOLDER }}" >> $GITHUB_ENV
+        echo "ZIP_FOLDER_PATH=${{ runner.temp }}/${{ env.ZIP_FOLDER }}" >> $GITHUB_ENV
+        echo "BUILD_OUTPUT_FOLDER_PATH=${{ runner.temp }}/${{ env.BUILD_OUTPUT_FOLDER }}" >> $GITHUB_ENV
+        echo "BUILD_IMAGE_BASE_FOLDER_PATH=${{ runner.temp }}/${{ env.BUILD_IMAGE_BASE_FOLDER }}" >> $GITHUB_ENV
+        echo "IMG_CONTEXT_FOLDER_PATH=${{ runner.temp }}/ImgContextFolder" >> $GITHUB_ENV
+
+        echo "TEMPLATE_FILES_PATH=${{ github.workspace }}/${{ env.TEMPLATE_RESOURCE_FOLDER }}" >> $GITHUB_ENV
+        echo "PIPELINE_FILES_PATH=${{ github.workspace }}/${{ env.PIPELINES_RESOURCE_FOLDER }}" >> $GITHUB_ENV
+        echo "SOURCE_FILES_PATH=${{ github.workspace }}/${{ env.SOURCE_RESOURCE_FOLDER }}" >> $GITHUB_ENV
+        echo "SECRETS_FILES_PATH=${{ github.workspace }}/${{ env.SECRETS_RESOURCE_NAME }}" >> $GITHUB_ENV
+        echo "APP_PIPELINE_FILES_PATH=${{ github.workspace }}/${{ env.PIPELINES_RESOURCE_FOLDER }}/${{ inputs.app_name }}/${{ inputs.program_type }}" >> $GITHUB_ENV
+        echo "ProjectYamlRootFolder=${{ github.workspace }}/${{ env.PIPELINES_RESOURCE_FOLDER }}/${{ inputs.app_name }}/${{ inputs.program_type }}" >> $GITHUB_ENV
+
+    - name: 利用符號連結建立 actions 目錄
+      id: create_actions_symbol_link
+      shell: bash
+      env:
+        # 1. 統一在這裡定義變數，Script 內就不用再寫 ${{ ... }}
+        # 邏輯：有 input 用 input，沒有則 fallback 到 SOURCE_FILES_PATH
+        TARGET_DIR: ${{ inputs.actions_symbol_link_place }}
+        SOURCE_DIR: ${{ env.SOURCE_FILES_PATH }}
+        PIPELINE_PATH: ${{ env.APP_PIPELINE_FILES_PATH }}
+        APP_NAME: ${{ inputs.app_name }}
+      run: |
+        # 定義來源路徑
+        ACTION_SRC="$PIPELINE_PATH/actions"
+
+        # 檢查來源是否存在
+        if [[ -d "$ACTION_SRC" ]]; then
+          echo "Pipeline Repo 中的 $APP_NAME 目錄找到 actions 目錄"
+          
+          # 預設值
+          SYMBOL_LINK_PLACE="$GITHUB_WORKSPACE"
+
+          # 邏輯判斷
+          if [[ -n "$TARGET_DIR" && -d "$TARGET_DIR" ]]; then
+            echo "✅ 優先使用設定的目標路徑: $TARGET_DIR"
+            SYMBOL_LINK_PLACE="$TARGET_DIR"
+          elif [[ -n "$SOURCE_DIR" && -d "$SOURCE_DIR" ]]; then
+            echo "⚠️ 目標路徑無效或未設定，退回使用來源路徑: $SOURCE_DIR"
+            SYMBOL_LINK_PLACE="$SOURCE_DIR"
+          else
+            echo "ℹ️ 使用預設 Workspace 路徑: $GITHUB_WORKSPACE"
+          fi
+
+          # 執行建立連結 (使用 -sfn 強制覆蓋更新，避免報錯)
+          echo "執行: ln -sfn $ACTION_SRC $SYMBOL_LINK_PLACE/.actions"
+          ln -sfn "$ACTION_SRC" "$SYMBOL_LINK_PLACE/.actions"
+          
+          # 驗證
+          ls -alh "$SYMBOL_LINK_PLACE/.actions"
+        else
+          echo "❌ 找不到來源目錄: $ACTION_SRC，跳過建立連結。"
+        fi

@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-template
+spec:
+  template:
+    spec:
+      affinity:
+        # 節點親和性：優先選擇 Spot 節點 (節省成本)
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: cloud.google.com/gke-provisioning
+                operator: In
+                values:
+                - spot
+        # Pod 反親和性：確保 分散在不同節點
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  name: app-template
+              topologyKey: "kubernetes.io/hostname"
+      # 容忍度：允許 Pod 调度到有 Taint 的 Spot 節點
+      tolerations:
+      - key: "cloud.google.com/gke-spot"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
