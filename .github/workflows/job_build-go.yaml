@@ -222,6 +222,7 @@ jobs:
           OUTPUT_PATH="${{ runner.temp }}/${{ env.BUILD_OUTPUT_FOLDER }}"
           
           echo "Building to: $OUTPUT_PATH"
+          go mod init
           go build ${{ inputs.build_args }} -v -o "$OUTPUT_PATH" ${{ inputs.build_folder_path }}
           
           # 🔍 Debug: 檢查編譯後有沒有檔案
