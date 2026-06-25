@@ -202,12 +202,12 @@ jobs:
       image_uri: ${{ steps.set_image_uri.outputs.image_uri }}
     steps:
       - name: 將 JSON 轉為 Env
-        uses: ./actions/convert-json-to-env@main
+        uses: kenny2061/gha-templates/actions/convert-json-to-env@main
         with:
           merged_config_json: ${{ inputs.merged_config_json }}
 
       - name: Checkout Pipeline Repository
-        uses: ./actions/checkout-repo@main
+        uses: kenny2061/gha-templates/actions/checkout-repo@main
         with:
           template_repo: ${{ inputs.template_repo }} # .
           template_ref: ${{ inputs.template_ref }}
@@ -216,7 +216,7 @@ jobs:
           token: ${{ secrets.PAT_FOR_CHECKOUT_REPO }} # 使用傳入的 PAT
 
       - name: Check Folders
-        uses: ./actions/setup-folders@main
+        uses: kenny2061/gha-templates/actions/setup-folders@main
         with:
           app_name: ${{ inputs.app_name }}
           program_type: ${{ inputs.program_type }}
@@ -237,20 +237,20 @@ jobs:
           unzip "${{ github.workspace }}/${{ env.ZIP_FILE_NAME }}" -d "${{ env.IMG_CONTEXT_FOLDER_PATH }}"
 
       - name: Copy Dockerfile Scripts
-        uses: ./actions/copy-files@main
+        uses: kenny2061/gha-templates/actions/copy-files@main
         with:
           source_path: ${{ env.TEMPLATE_FILES_PATH }}/dockerfiles/scripts
           destination_path: ${{ env.IMG_CONTEXT_FOLDER_PATH }}/scripts
 
       - name: Copy Fonts
         if: ${{ inputs.copy_fonts }}
-        uses: ./actions/copy-files@main
+        uses: kenny2061/gha-templates/actions/copy-files@main
         with:
           source_path: ${{ env.TEMPLATE_FILES_PATH }}/dockerfiles/fonts/
           destination_path: ${{ env.IMG_CONTEXT_FOLDER_PATH }}/fonts
 
       - name: Copy Application Build Image Related Scripts
-        uses: ./actions/copy-build-image-scripts@main
+        uses: kenny2061/gha-templates/actions/copy-build-image-scripts@main
         with:
           app_name: ${{ inputs.app_name }}
           program_type: ${{ inputs.program_type }}

@@ -130,12 +130,12 @@ jobs:
       k8s_name_label: ${{ steps.set_outputs.outputs.k8s_name_label }}
     steps:
       - name: 將 JSON 轉為 Env
-        uses: ./actions/convert-json-to-env@main
+        uses: kenny2061/gha-templates/actions/convert-json-to-env@main
         with:
           merged_config_json: ${{ inputs.merged_config_json }}
 
       - name: Checkout Pipeline Repository
-        uses: ./actions/checkout-repo@main
+        uses: kenny2061/gha-templates/actions/checkout-repo@main
         with:
           template_repo: ${{ inputs.template_repo }} # .
           template_ref: ${{ inputs.template_ref }}
@@ -144,7 +144,7 @@ jobs:
           token: ${{ secrets.PAT_FOR_CHECKOUT_REPO }} # 使用傳入的 PAT
 
       - name: Check Folders
-        uses: ./actions/setup-folders@main
+        uses: kenny2061/gha-templates/actions/setup-folders@main
         with:
           app_name: ${{ inputs.app_name }}
           program_type: ${{ inputs.program_type }}
@@ -285,7 +285,7 @@ jobs:
 
       - name: Merge environment variables
         id: merge_env_vars
-        uses: ./actions/merge-env@main
+        uses: kenny2061/gha-templates/actions/merge-env@main
         with:
           app_name: ${{ inputs.app_name }}
           program_type: ${{ inputs.program_type }}
@@ -460,7 +460,7 @@ jobs:
 
       - name: Deploy Approval
         if: ${{ inputs.deploy_environment == 'stg' || inputs.deploy_environment == 'prod' }}
-        uses: ./actions/deploy-approval@main
+        uses: kenny2061/gha-templates/actions/deploy-approval@main
         with:
           deploy_environment: ${{ inputs.deploy_environment }}
           approvers: ${{ env.APPROVERS }}

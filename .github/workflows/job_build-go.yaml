@@ -141,12 +141,12 @@ jobs:
       merged_config_json: ${{ inputs.merged_config_json }}
     steps:
       - name: 將 JSON 轉為 Env
-        uses: ./actions/convert-json-to-env@main
+        uses: kenny2061/gha-templates/actions/convert-json-to-env@main
         with:
           merged_config_json: ${{ inputs.merged_config_json }}
 
       - name: Checkout Pipeline Repository
-        uses: ./actions/checkout-repo@main
+        uses: kenny2061/gha-templates/actions/checkout-repo@main
         with:
           template_repo: ${{ inputs.template_repo }} # .
           template_ref: ${{ inputs.template_ref }}
@@ -180,7 +180,7 @@ jobs:
           fi
 
       - name: Setup Pipeline Need Folders
-        uses: ./actions/setup-folders@main
+        uses: kenny2061/gha-templates/actions/setup-folders@main
         with:
           app_name: ${{ inputs.app_name }}
           program_type: ${{ inputs.program_type }}
@@ -243,7 +243,7 @@ jobs:
 
       - name: Build application in container
         if: ${{ inputs.use_build_container == true }}
-        uses: ./actions/docker-run@main
+        uses: kenny2061/gha-templates/actions/docker-run@main
         with:
           container_image: ${{ inputs.builder_image }}
           source_folder: ${{ github.workspace }}/${{ env.SOURCE_RESOURCE_NAME }}

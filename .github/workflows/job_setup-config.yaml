@@ -58,7 +58,7 @@ jobs:
       merged_config: ${{ steps.load-pipeline-vars.outputs.loaded_vars }}
     steps:
       - name: Checkout Pipeline Repository
-        uses: ./actions/checkout-repo@main
+        uses: kenny2061/gha-templates/actions/checkout-repo@main
         with:
           template_repo: ${{ inputs.template_repo }} # .
           template_ref: ${{ inputs.template_ref }}
@@ -86,7 +86,7 @@ jobs:
 
       - name: Load Templates Variables
         id: load-template-vars
-        uses: ./actions/load-variables@main
+        uses: kenny2061/gha-templates/actions/load-variables@main
         with:
           folder: templates
           yaml_files: 'variables/cloudServices/*.yaml,variables/codeType/**/*.yaml,variables/variables-template.yaml'
@@ -95,7 +95,7 @@ jobs:
       
       - name: Load Pipelines Variables
         id: load-pipeline-vars
-        uses: ./actions/load-variables@main
+        uses: kenny2061/gha-templates/actions/load-variables@main
         with:
           folder: pipelines
           yaml_files: 'variables/**/*-variables.yaml,variables/**/*-variables.yml,${{ inputs.app_name }}/${{ inputs.program_type }}/variables/**/*-variables.yaml,${{ inputs.app_name }}/${{ inputs.program_type }}/variables/**/*-variables.yml'
