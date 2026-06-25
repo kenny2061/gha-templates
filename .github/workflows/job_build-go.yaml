@@ -185,20 +185,6 @@ jobs:
           app_name: ${{ inputs.app_name }}
           program_type: ${{ inputs.program_type }}
 
-      - name: Download dependencies
-        if: ${{ inputs.use_build_container != true }}
-        shell: bash
-        env:
-          PAT: ${{ secrets.PAT_FOR_CHECKOUT_REPO }}
-        run: |
-          go env -w GOPRIVATE=github.com/kenny2061/* && \
-          git config --global --add url."https://x-oauth-basic:$PAT@github.com/".insteadOf "https://github.com/"
-
-          cd ${{ github.workspace }}/$SOURCE_RESOURCE_NAME/
-          go mod download
-
-          go env
-
       - name: Pre build action
         if: inputs.run_pre_build_action
         uses: ./sources/.actions/pre-build
