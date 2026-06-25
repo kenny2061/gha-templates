@@ -38,14 +38,14 @@ runs:
       uses: actions/checkout@v4
       with:
         repository: ${{ format('kenny2061/{0}', inputs.template_repo || 'gha-templates') }}
-        ref: ${{ inputs.template_ref || 'master' }}
+        ref: ${{ inputs.template_ref || 'main' }}
         path: templates
         token: ${{ inputs.token }}
     - name: Checkout Pipeline Repository
       uses: actions/checkout@v4
       with:
         repository: ${{ format('kenny2061/{0}', inputs.pipeline_repo || 'Pipelines') }}
-        ref: ${{ inputs.pipeline_repo_ref || 'master' }}
+        ref: ${{ inputs.pipeline_repo_ref || 'main' }}
         path: pipelines
         token: ${{ inputs.token }}
     - name: Checkout Application Repository
